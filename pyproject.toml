@@ -1,0 +1,22 @@
+[tool.poetry]
+name = "yt-dlp-async"
+version = "0.1.0"
+description = ""
+authors = ["John Smith <john@example.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+psycopg2-binary = "^2.9.9"
+loguru = "^0.7.2"
+fire = "^0.6.0"
+yt-dlp = "^2024.7.16"
+asyncpg = "^0.29.0"
+python-dotenv = "^1.0.1"
+
+[tool.poetry.scripts]
+get-video-id = "yt-dlp-async.video_id:cmd"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
