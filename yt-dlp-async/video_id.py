@@ -1,12 +1,10 @@
-import asyncio
 import os
 import sys
+import asyncio
+from asyncpg import create_pool
+import fire
 from dataclasses import dataclass
 from loguru import logger
-from typing import List
-import fire
-import aiomultiprocess
-
 from .utils import Utils
 from .database import DatabaseOperations
 import yt_dlp # The yt_dlp library is not directly used in this file. It is called by a subprocess. The library needs to be installed in the python environment. Referenced here for poetry dependency checks purposes.
@@ -102,12 +100,23 @@ class VideoIdOperations:
             with open(file_path, 'r') as file:
                 reader = csv.reader(file)
                 ids = [row[0].strip() for row in reader if row and row[0].strip()]
+
         return ids
 
 @dataclass(slots=True)
 class Fetcher:
-    async def fetch(video_ids=None, video_id_files=None, playlist_ids=None, playlist_id_files=None, user_ids=None, user_id_files=None):
+    async def fetch(video_ids=None, video_id_files=None, playlist_ids=None, playlist_id_files=None, user_ids=None, user_id_files=None, num_workers: int = 5):
+        # Ensure num_workers is an integer
+        if not isinstance(num_workers, int) or num_workers <=0 :
+            logger.error(f"num_workers must be a positive integer. The passed value was: {num_workers}")
+            return
+    
         Logging.log_environment_info()
+
+        # Create worker tasks
+        user_id_workers = [asyncio.create_task(worker_user_ids()) for _ in range(num_workers)]
+        playlist_id_workers = [asyncio.create_task(worker_playlist_ids()) for _ in range(num_workers)]
+        video_id_workers = [asyncio.create_task(worker_video_ids()) for _ in range(num_workers)]
 
         # Add video_ids, playlist_ids, and user_ids to their respective queues
         user_ids = user_ids or []
@@ -125,6 +134,7 @@ class Fetcher:
 
                 for playlist_id in playlist_ids:
                     await playlist_id_queue.put(playlist_id)
+
 
         video_ids = video_ids or []
         if video_ids:
@@ -166,137 +176,139 @@ class Fetcher:
                         for playlist_id in playlist_ids:
                             await playlist_id_queue.put(playlist_id)
 
-async def process_user_id(user_id):
-    active_tasks['user_id'] += 1
-    try:
-        user_url = await Utils.prep_url(user_id, 'user')
-        # logger.info(f"worker_user_ids user_url after prep_url {user_url}")
-        user_playlist_url = await Utils.prep_url(user_id, 'user_playlist')
-        # logger.info(f"worker_user_ids user_playlist_url after prep_url {user_playlist_url}")
-        
-        user_playlist_ids = await VideoIdOperations.fetch_playlist_ids_from_user_id(user_playlist_url)
-        # logger.info(f"user_playlist_ids after fetch_playlist_ids_from_user_id {user_playlist_ids}")
-        if user_playlist_ids:
-            for playlist_id in user_playlist_ids:
-                await playlist_id_queue.put(playlist_id)
-            # logger.info(f"worker_user_ids playlist_id_queue after playlist_id_queue.put {playlist_id_queue.qsize()}")
+        # Wait for all workers to finish
+        await asyncio.gather(*user_id_workers, *playlist_id_workers, *video_id_workers, return_exceptions=True)
 
-        user_video_ids = await VideoIdOperations.fetch_video_ids_from_url(user_url)
-        # logger.info(f"worker_user_ids user_video_ids after fetch_video_ids_from_url {len(user_video_id)} {user_video_id}")
-
-        if user_video_ids:
-            for user_video_id in user_video_ids:
-                await video_id_queue.put(user_video_id)
-            # logger.info(f"worker_user_ids video_id_queue after video_id_queue.put {video_id_queue.qsize()}")
-        logger.info(f"End work on user_id: {user_id}")
-
-    except Exception as e:
-        logger.error(f"Error processing user_id {user_id}: {e}")
-
-    finally:
-        active_tasks['user_id'] -= 1
-        user_id_queue.task_done()
-        logger.info(f"ENDING process_user_id {user_id}")
-
-async def process_playlist_id(playlist_id):
-    active_tasks['playlist_id'] += 1
-    try:
-        logger.info(f"STARTING playlist_url {playlist_id}")
-        playlist_url = await Utils.prep_url(playlist_id, 'playlist')
-        logger.info(f"playlist_url after prep_url {playlist_url}")
-
-        playlist_video_ids = await VideoIdOperations.fetch_video_ids_from_url(playlist_url)
-        logger.info(f"playlist_video_ids after fetch_video_ids_from_url {len(playlist_video_ids)} {playlist_video_ids}")
-
-        if playlist_video_ids:
-            for playlist_video_id in playlist_video_ids:
-                await video_id_queue.put(playlist_video_id)
-
-        logger.info(f"End work on playlist_id: {playlist_id}")
-        
-    except Exception as e:
-        logger.error(f"Error processing playlist_id {playlist_id}: {e}")
-
-    finally:
-        active_tasks['playlist_id'] -= 1
-        playlist_id_queue.task_done()
-        logger.info(f"ENDING playlist_url {playlist_id}")
-
-async def process_video_id():
-    active_tasks['video_id'] += 1
-    try:
-        video_ids_batch = []
-
-        # Collect video IDs from the queue
-        while not video_id_queue.empty():
-            video_ids_batch.append(await video_id_queue.get())
-            video_id_queue.task_done()
-
-        # Insert collected video IDs into the database
-        if video_ids_batch:
-            logger.info(f"process_video_id attempting to insert {len(video_ids_batch)} videos")
-            await DatabaseOperations.insert_video_ids(video_ids_batch)
-            logger.info(f"Currrent video count: {await DatabaseOperations.get_video_count()}")
-
-    except Exception as e:
-        logger.error(f"Error processing {len(video_ids_batch)} videos {video_ids_batch}: {e}")
-
-    finally:
-        active_tasks['video_id'] -= 1
-        logger.info(f"ENDING process_video_id")
-
-async def worker(queue: asyncio.Queue):
-    Logging.log_state()
-    while True:
-        if user_id_queue.empty() and playlist_id_queue.empty() and video_id_queue.empty() and (active_tasks['user_id'] + active_tasks['playlist_id'] + active_tasks['video_id']) == 0:
-            # If all queues are empty and there are no active_tasks then break out of the loop
-            break
-
-        if queue.empty() :
-            await asyncio.sleep(0.250)
-            continue
-
-        if queue is user_id_queue and not user_id_queue.empty():
-            user_id = await user_id_queue.get()
-            logger.info(f"Remaining items in user_id_queue: {user_id_queue.qsize()}")
-            logger.info(f"Start work on user_id: {user_id}")
-            await process_user_id(user_id)
-            
-        if queue is playlist_id_queue and not playlist_id_queue.empty():
-            playlist_id = await playlist_id_queue.get()
-            logger.info(f"Remaining items in playlist_id_queue: {playlist_id_queue.qsize()}")
-            logger.info(f"Start work on playlist_id: {playlist_id}")
-            await process_playlist_id(playlist_id)
-        
-        if queue is video_id_queue and not video_id_queue.empty():
-            logger.info(f"worker Remaining items in video_id_queue: {video_id_queue.qsize()}")
-            await process_video_id()
-            logger.info(f"worker End items in video_id_queue: {video_id_queue.qsize()}")
-        
-        Logging.log_state()
-
-async def run_workers():
-    queues = [user_id_queue, playlist_id_queue, video_id_queue]
-    workers = [worker(queue) for queue in queues]
-
-    logger.info("Starting worker coroutines")
-    
-    try:
-        logger.info("START of run_workers try block")
-        await asyncio.gather(*workers)
-        # logger.info("run_workers finished asyncio.gather(*workers)")
-        
-        # Ensure the script ends when all tasks are done
+        # Wait for all the queue tasks to finish before the script ends
         await asyncio.gather(
             user_id_queue.join(),
             playlist_id_queue.join(),
             video_id_queue.join()
         )
-        # logger.info("run_workers finished asyncio.gather")
 
-    except Exception as e:
-        logger.error(f"Error running workers: {e}") 
+async def worker_user_ids():
+    while True:
+        # Logging.log_state()
+        # Exit if the user_id queue is empty and there are no running playlist_id tasks
+        if user_id_queue.empty() and active_tasks['user_id'] == 0:
+            break
+
+        if user_id_queue.empty() :
+            await asyncio.sleep(0.250)
+            continue
+
+        try:
+            active_tasks['user_id'] += 1
+            user_id = await asyncio.wait_for(user_id_queue.get(), timeout=1)
+            logger.info(f"Start work on user_id: {user_id}")
+            logger.info(f"Size of user_id_queue: {user_id_queue.qsize()}")
+
+            user_url = await Utils.prep_url(user_id, 'user')
+            # logger.info(f"worker_user_ids user_url after prep_url {user_url}")
+            user_playlist_url = await Utils.prep_url(user_id, 'user_playlist')
+            # logger.info(f"worker_user_ids user_playlist_url after prep_url {user_playlist_url}")
+            
+            # Process user videos and playlists
+            user_playlist_ids = await VideoIdOperations.fetch_playlist_ids_from_user_id(user_playlist_url)
+            # logger.info(f"user_playlist_ids after fetch_playlist_ids_from_user_id {user_playlist_ids}")
+            if user_playlist_ids:
+                for playlist_id in user_playlist_ids:
+                    await playlist_id_queue.put(playlist_id)
+                # logger.info(f"worker_user_ids playlist_id_queue after playlist_id_queue.put {playlist_id_queue.qsize()}")
+
+            user_video_ids = await VideoIdOperations.fetch_video_ids_from_url(user_url)
+            # logger.info(f"worker_user_ids user_video_ids after fetch_video_ids_from_url {len(user_video_id)} {user_video_id}")
+            if user_video_ids:
+                for user_video_id in user_video_ids:
+                    await video_id_queue.put(user_video_id)
+                # logger.info(f"worker_user_ids video_id_queue after video_id_queue.put {video_id_queue.qsize()}")
+
+            logger.info(f"End work on user_id: {user_id}")
+
+        except Exception as e:
+            logger.error(f"Error processing user_id {user_id}: {e}")
+
+        finally:
+            user_id_queue.task_done()
+            active_tasks['user_id'] -= 1  # Decrement the counter when a task is finished
+            logger.info(f"ENDING worker_user_ids {user_id}")
+
+    logger.info(f"User ID worker has finished.")
+
+async def worker_playlist_ids():
+    while True:
+        # Logging.log_state()
+        # Exit if the user_id and playlist_id queues are empty and there are no running user_id or playlist_id tasks
+        if user_id_queue.empty() and playlist_id_queue.empty() and (active_tasks['user_id'] + active_tasks['playlist_id']) == 0:
+            break
+
+        if playlist_id_queue.empty() :
+            await asyncio.sleep(0.250)
+            continue
+
+        try:
+            active_tasks['playlist_id'] += 1
+            playlist_id = await asyncio.wait_for(playlist_id_queue.get(), timeout=1)
+            logger.info(f"Start work on playlist_id: {playlist_id}")
+            logger.info(f"Size of playlist_id_queue: {playlist_id_queue.qsize()}")
+        
+            playlist_url = await Utils.prep_url(playlist_id, 'playlist')
+            # logger.info(f"playlist_url after prep_url {playlist_url}")
+
+            # Process playlist videos
+            playlist_video_ids = await VideoIdOperations.fetch_video_ids_from_url(playlist_url)
+            # logger.info(f"playlist_video_ids after fetch_video_ids_from_url {len(playlist_video_ids)} {playlist_video_ids}")
+
+            if playlist_video_ids:
+                for playlist_video_id in playlist_video_ids:
+                    await video_id_queue.put(playlist_video_id)
+            
+            logger.info(f"End work on playlist_id: {playlist_id}")
+
+        except Exception as e:
+            logger.error(f"Error processing playlist_id {playlist_id}: {e}")
+
+        finally:
+            playlist_id_queue.task_done()
+            active_tasks['playlist_id'] -= 1  # Decrement the counter when a task is finished
+            logger.info(f"ENDING worker_playlist_ids {playlist_id}")
+
+    logger.info(f"Playlist ID worker has finished.")
+
+async def worker_video_ids():
+    while True:
+        # Logging.log_state()
+        # Exit if all queues are empty and there are no running tasks
+        if user_id_queue.empty() and playlist_id_queue.empty() and video_id_queue.empty() and (active_tasks['user_id'] + active_tasks['playlist_id'] + active_tasks['video_id']) == 0:
+            break
+
+        if video_id_queue.empty() :
+            await asyncio.sleep(0.250)
+            continue
+
+        try:
+            video_ids_batch = []
+
+            # Collect video IDs from the queue
+            active_tasks['video_id'] += 1  # Increment the counter when a task is started
+            while not video_id_queue.empty():
+                video_ids_batch.append(await video_id_queue.get())
+                video_id_queue.task_done()
+
+            # Insert collected video IDs into the database
+            if video_ids_batch:
+                logger.info(f"process_video_id attempting to insert {len(video_ids_batch)} videos")
+                await DatabaseOperations.insert_video_ids(video_ids_batch)
+                logger.info(f"Currrent video count: {await DatabaseOperations.get_video_count()}")
+
+        except Exception as e:
+            logger.error(f"Error processing {len(video_ids_batch)} videos {video_ids_batch}: {e}")
+
+        finally:
+            active_tasks['video_id'] -= 1  # Decrement the counter when a task is finished
+            logger.info(f"ENDING process_video_id")
+
+    logger.info(f"Video ID worker has finished.")
 
 def cmd():
     fire.Fire(Fetcher)
-    asyncio.run(run_workers())
