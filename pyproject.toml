@@ -4,6 +4,7 @@ version = "0.1.0"
 description = ""
 authors = ["John Smith <john@example.com>"]
 readme = "README.md"
+packages = [{ include = "yt-dlp-async" }]
 
 [tool.poetry.dependencies]
 python = "^3.12"
@@ -13,6 +14,7 @@ fire = "^0.6.0"
 yt-dlp = "^2024.7.16"
 asyncpg = "^0.29.0"
 python-dotenv = "^1.0.1"
+aiomultiprocess = "^0.9.1"
 
 [tool.poetry.scripts]
 get-video-id = "yt-dlp-async.video_id:cmd"
