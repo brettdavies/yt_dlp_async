@@ -2,7 +2,7 @@ import os
 import psycopg2
 from psycopg2 import pool
 from dotenv import load_dotenv
-from typing import List
+from typing import Any, Dict, List
 # from .video_id import Logging
 
 # Load environment variables from .env file
@@ -55,13 +55,13 @@ class DatabaseOperations:
         return count_result
 
     @staticmethod
-    def get_all_video_ids():
-        video_ids = []
+    def get_video_ids_without_metadata() -> List[str]:
+        video_ids = List[str]
 
         conn = DatabaseOperations.get_db_connection()
         try:
             with conn.cursor() as cur:
-                query = "SELECT video_id FROM videos_to_be_processed"
+                query = "SELECT video_id FROM videos_to_be_processed_view"
                 cur.execute(query)
                 result = cur.fetchall()  # Fetch all results
                 video_ids = [row[0] for row in result]  # Extract video IDs from the results
@@ -138,23 +138,134 @@ class DatabaseOperations:
             DatabaseOperations.release_db_connection(conn)
 
     @staticmethod
-    async def insert_video_id_metadata(video_ids: List[str]):
-        # Logging.logger.info(f"Attempting to insert video_ids: {len(video_ids)}")
-        # Logging.logger.info(f"start insert_video_ids: inserting {video_ids}")
-        
+    async def insert_update_video_metadata(metadata: Dict[str, Any]):
         conn = DatabaseOperations.get_db_connection()
         try:
-            query = """
-            INSERT INTO videos_to_be_processed (video_id)
-            VALUES (%s)
-            ON CONFLICT (video_id) DO NOTHING
-            """
-            with conn.cursor() as cursor:
-                # Batch insert video IDs
-                cursor.executemany(query, [(vid,) for vid in video_ids])
+            # Create a cursor object
+            cursor = conn.cursor()
+
+            # Metadata Table
+            sql_metadata = """
+            INSERT INTO video_metadata (
+            video_id, kind, etag, title, description, published_at,
+            channel_id, channel_title, category_id, live_broadcast_content,
+            default_language, default_audio_language, duration, dimension,
+            definition, caption, licensed_content, projection,
+            upload_status, privacy_status, license, embeddable,
+            public_stats_viewable, made_for_kids, view_count, like_count,
+            dislike_count, favorite_count, comment_count, tags)
+            VALUES (
+            '{video_id}', '{kind}', '{etag}', '{title}', '{description}', '{published_at}',
+            '{channel_id}', '{channel_title}', '{category_id}', '{live_broadcast_content}',
+            '{default_language}', '{default_audio_language}', '{duration}', '{dimension}',
+            '{definition}', '{caption}', '{licensed_content}', '{projection}',
+            '{upload_status}', '{privacy_status}', '{license}', '{embeddable}',
+            '{public_stats_viewable}', '{made_for_kids}', {view_count}, {like_count},
+            {dislike_count}, {favorite_count}, {comment_count}, ARRAY[{tags}])
+            ON CONFLICT (video_id) DO UPDATE SET
+            kind = EXCLUDED.kind,
+            etag = EXCLUDED.etag,
+            title = EXCLUDED.title,
+            description = EXCLUDED.description,
+            published_at = EXCLUDED.published_at,
+            channel_id = EXCLUDED.channel_id,
+            channel_title = EXCLUDED.channel_title,
+            category_id = EXCLUDED.category_id,
+            live_broadcast_content = EXCLUDED.live_broadcast_content,
+            default_language = EXCLUDED.default_language,
+            default_audio_language = EXCLUDED.default_audio_language,
+            duration = EXCLUDED.duration,
+            dimension = EXCLUDED.dimension,
+            definition = EXCLUDED.definition,
+            caption = EXCLUDED.caption,
+            licensed_content = EXCLUDED.licensed_content,
+            projection = EXCLUDED.projection,
+            upload_status = EXCLUDED.upload_status,
+            privacy_status = EXCLUDED.privacy_status,
+            license = EXCLUDED.license,
+            embeddable = EXCLUDED.embeddable,
+            public_stats_viewable = EXCLUDED.public_stats_viewable,
+            made_for_kids = EXCLUDED.made_for_kids,
+            view_count = EXCLUDED.view_count,
+            like_count = EXCLUDED.like_count,
+            dislike_count = EXCLUDED.dislike_count,
+            favorite_count = EXCLUDED.favorite_count,
+            comment_count = EXCLUDED.comment_count,
+            tags = EXCLUDED.tags;
+            """.format(**metadata)
+
+            # Thumbnails Table
+            sql_thumbnails = """
+            INSERT INTO thumbnails (video_id, thumbnail_size, url, width, height)
+            VALUES
+            ('{video_id}', 'default', '{default_url}', {default_width}, {default_height}),
+            ('{video_id}', 'medium', '{medium_url}', {medium_width}, {medium_height}),
+            ('{video_id}', 'high', '{high_url}', {high_width}, {high_height}),
+            ('{video_id}', 'standard', '{standard_url}', {standard_width}, {standard_height}),
+            ('{video_id}', 'maxres', '{maxres_url}', {maxres_width}, {maxres_height})
+            ON CONFLICT (video_id, thumbnail_size) DO UPDATE SET
+            url = EXCLUDED.url,
+            width = EXCLUDED.width,
+            height = EXCLUDED.height;
+            """.format(**metadata)
+
+            # Localized Info Table
+            sql_localized = """
+            INSERT INTO localized_info (video_id, language, title, description)
+            VALUES
+            ('{video_id}', '{language}', '{localized_title}', '{localized_description}')
+            ON CONFLICT (video_id, language) DO UPDATE SET
+            title = EXCLUDED.title,
+            description = EXCLUDED.description;
+            """.format(**metadata)
+
+            # Topic Categories Table
+            sql_categories = """
+            INSERT INTO topic_categories (video_id, category)
+            VALUES
+            ('{video_id}', '{topic_category}')
+            ON CONFLICT (video_id, category) DO NOTHING;
+            """.format(**metadata)
+
+            # Content Rating Table
+            sql_rating = """
+            INSERT INTO content_rating (video_id, rating_type, rating_value)
+            VALUES
+            ('{video_id}', '{rating_type}', '{rating_value}')
+            ON CONFLICT (video_id, rating_type) DO UPDATE SET
+            rating_value = EXCLUDED.rating_value;
+            """.format(**metadata)
+
+            # Recording Details Table
+            sql_recording = """
+            INSERT INTO recording_details (video_id, recording_date, recording_location)
+            VALUES
+            ('{video_id}', '{recording_date}', '{recording_location}')
+            ON CONFLICT (video_id) DO UPDATE SET
+            recording_date = EXCLUDED.recording_date,
+            recording_location = EXCLUDED.recording_location;
+            """.format(**metadata)
+
+            # Transcripts Video Table
+            sql_transcript = """
+            INSERT INTO transcripts_video (video_id, transcript_text, language, is_auto_generated)
+            VALUES
+            ('{video_id}', '{transcript_text}', '{language}', {is_auto_generated})
+            ON CONFLICT (video_id, language) DO UPDATE SET
+            transcript_text = EXCLUDED.transcript_text,
+            is_auto_generated = EXCLUDED.is_auto_generated;
+            """.format(**metadata)
+
+            # Batch insert video metadata
+            cursor.execute(sql_metadata)
+            cursor.execute(sql_thumbnails)
+            cursor.execute(sql_localized)
+            cursor.execute(sql_categories)
+            cursor.execute(sql_rating)
+            cursor.execute(sql_recording)
+            cursor.execute(sql_transcript)
 
             conn.commit()
-    
+        
         finally:
             DatabaseOperations.release_db_connection(conn)
-
