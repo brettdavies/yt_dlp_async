@@ -15,9 +15,11 @@ yt-dlp = "^2024.7.16"
 asyncpg = "^0.29.0"
 python-dotenv = "^1.0.1"
 aiomultiprocess = "^0.9.1"
+youtube-transcript-api = "^0.6.2"
 
 [tool.poetry.scripts]
 get-video-id = "yt-dlp-async.video_id:cmd"
+get-metadata = "yt-dlp-async.video_metadata:cmd"
 
 [build-system]
 requires = ["poetry-core"]
