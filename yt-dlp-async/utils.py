@@ -1,3 +1,4 @@
+import os
 import sys
 import json
 import datetime
@@ -13,6 +14,23 @@ class Utils:
         elif id_type == 'playlist':
             id_val = (f"https://www.youtube.com/playlist?list={id_val}")
         return id_val
+
+    @staticmethod
+    async def read_ids_from_file(file_path):
+        _, file_extension = os.path.splitext(file_path)
+        ids = []
+
+        if file_extension == '.txt':
+            with open(file_path, 'r') as file:
+                ids = [line.strip() for line in file if line.strip()]
+        elif file_extension == '.csv':
+            import csv
+            with open(file_path, 'r') as file:
+                reader = csv.reader(file)
+                ids = [row[0].strip() for row in reader if row and row[0].strip()]
+
+        return ids
+
 
     @staticmethod
     async def prep_metadata_dictionary(item: json) -> Dict[str, Any]:

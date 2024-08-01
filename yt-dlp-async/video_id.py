@@ -11,7 +11,11 @@ import yt_dlp # The yt_dlp library is not directly used in this file. It is call
 
 # Configure loguru
 logger.remove()
+# Add a logger for the screen (stderr)
 logger.add(sys.stderr, format="{time} - {level} - {message}", level="INFO")
+
+# Add a logger for the log file
+logger.add("../data/video_id.log", format="{time} - {level} - {message}", level="INFO")
 
 # Queues for different types of IDs
 user_id_queue = asyncio.Queue()
@@ -88,21 +92,6 @@ class VideoIdOperations:
             logger.error(f"Error: {e}")
         return playlist_ids
 
-    def read_ids_from_file(file_path):
-        _, file_extension = os.path.splitext(file_path)
-        ids = []
-
-        if file_extension == '.txt':
-            with open(file_path, 'r') as file:
-                ids = [line.strip() for line in file if line.strip()]
-        elif file_extension == '.csv':
-            import csv
-            with open(file_path, 'r') as file:
-                reader = csv.reader(file)
-                ids = [row[0].strip() for row in reader if row and row[0].strip()]
-
-        return ids
-
 @dataclass(slots=True)
 class Fetcher:
     async def fetch(video_ids=None, video_id_files=None, playlist_ids=None, playlist_id_files=None, user_ids=None, user_id_files=None, num_workers: int = 5):
@@ -150,7 +139,7 @@ class Fetcher:
             if isinstance(user_id_files, str):
                 user_id_files = user_id_files.replace(',', ' ').split()
                 for file in user_id_files:
-                    user_ids.extend(VideoIdOperations.read_ids_from_file(file))
+                    user_ids.extend(Utils.read_ids_from_file(file))
                     for user_id in user_ids:
                         await user_id_queue.put(user_id)
 
@@ -159,7 +148,7 @@ class Fetcher:
             if isinstance(playlist_id_files, str):
                 playlist_id_files = playlist_id_files.replace(',', ' ').split()
                 for file in playlist_id_files:
-                    playlist_ids.extend(VideoIdOperations.read_ids_from_file(file))
+                    playlist_ids.extend(Utils.read_ids_from_file(file))
                     for playlist_id in playlist_ids:
                         await playlist_id_queue.put(playlist_id)
         
@@ -174,7 +163,7 @@ class Fetcher:
                         await DatabaseOperations.insert_video_ids_bulk(file)
                         logger.info(f"Currrent count of videos to be processed: {await DatabaseOperations.get_count_videos_to_be_processed()}")
                     elif file_extension == '.csv':
-                        playlist_ids.extend(VideoIdOperations.read_ids_from_file(file))
+                        playlist_ids.extend(Utils.read_ids_from_file(file))
                         for playlist_id in playlist_ids:
                             await playlist_id_queue.put(playlist_id)
 
