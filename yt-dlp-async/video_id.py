@@ -170,7 +170,9 @@ class Fetcher:
                 for file in video_id_files:
                     _, file_extension = os.path.splitext(file)
                     if file_extension == '.txt':
+                        logger.info(f"Attempting to insert videos from {file}")
                         await DatabaseOperations.insert_video_ids_bulk(file)
+                        logger.info(f"Currrent count of videos to be processed: {await DatabaseOperations.get_count_videos_to_be_processed()}")
                     elif file_extension == '.csv':
                         playlist_ids.extend(VideoIdOperations.read_ids_from_file(file))
                         for playlist_id in playlist_ids:
@@ -299,7 +301,7 @@ async def worker_video_ids():
             if video_ids_batch:
                 logger.info(f"process_video_id attempting to insert {len(video_ids_batch)} videos")
                 await DatabaseOperations.insert_video_ids(video_ids_batch)
-                logger.info(f"Currrent video count: {await DatabaseOperations.get_video_count()}")
+                logger.info(f"Currrent count of videos to be processed: {await DatabaseOperations.get_count_videos_to_be_processed()}")
 
         except Exception as e:
             logger.error(f"Error processing {len(video_ids_batch)} videos {video_ids_batch}: {e}")
