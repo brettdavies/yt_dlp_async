@@ -1,4 +1,5 @@
 import os
+import asyncio
 from psycopg2 import pool
 from dotenv import load_dotenv
 from typing import Any, Dict, List
@@ -40,13 +41,35 @@ class DatabaseOperations:
         return count_result
 
     @staticmethod
-    async def get_video_ids_without_metadata() -> List[str]:
-        video_ids = List[str]
+    async def get_video_ids_without_metadata(forbidden_queue: asyncio.Queue) -> List[str]:
+        video_ids = []
+
+        # Retrieve forbidden video IDs from the queue
+        forbidden_video_ids = set()
+        while not forbidden_queue.empty():
+            video_id = await forbidden_queue.get()
+            forbidden_video_ids.add(video_id)
+
+        # If there are forbidden IDs, prepare the WHERE clause
+        forbidden_ids_list = list(forbidden_video_ids)
+        if forbidden_ids_list:
+            placeholders = ','.join(['%s'] * len(forbidden_ids_list))
+            forbidden_ids_str = f"WHERE video_id NOT IN ({placeholders})"
+        else:
+            forbidden_ids_str = ""
 
         conn = DatabaseOperations.get_db_connection()
         try:
             with conn.cursor() as cursor:
-                query = "SELECT video_id FROM videos_to_be_processed ORDER BY RANDOM() LIMIT 50"
+                query = f"""
+                    SELECT video_id 
+                    FROM videos_to_be_processed 
+                    {forbidden_ids_str}
+                    ORDER BY RANDOM() 
+                    LIMIT 50
+                """
+                # print(f"SQL QUERY: {query}")
+                # Execute the query with parameters
                 cursor.execute(query)
                 result = cursor.fetchall()  # Fetch all results
                 video_ids = [row[0] for row in result]  # Extract video IDs from the results
