@@ -1,8 +1,7 @@
 import os
-import sys
 import json
-import datetime
-from typing import Dict, Any
+from typing import Any, Dict, List
+from .database import DatabaseOperations
 
 class Utils:
     @staticmethod
@@ -31,6 +30,27 @@ class Utils:
 
         return ids
 
+    @staticmethod
+    async def read_ids_from_cli_argument_insert_db(video_ids: List[str], video_id_files: List[str]):
+        if video_ids:
+            if isinstance(video_ids, str):
+                video_ids = video_ids.replace(',', ' ').split()
+                await DatabaseOperations.insert_video_ids(video_ids)
+
+        if video_id_files:
+            if isinstance(video_id_files, str):
+                video_id_files = video_id_files.replace(',', ' ').split()
+                for file in video_id_files:
+                    _, file_extension = os.path.splitext(file)
+                    if file_extension == '.txt':
+                        print(f"Attempting to insert videos from {file}")
+                        await DatabaseOperations.insert_video_ids_bulk(file)
+                        print(f"Currrent count of videos to be processed: {await DatabaseOperations.get_count_videos_to_be_processed()}")
+                    elif file_extension == '.csv':
+                        video_ids.extend(Utils.read_ids_from_file(file))
+                        await DatabaseOperations.insert_video_ids(video_ids)
+                    else:
+                        print(f"{file_extension.removeprefix(".").upper()} is not an accepted format. Please use TXT or CSV.")
 
     @staticmethod
     async def prep_metadata_dictionary(item: json) -> Dict[str, Any]:

@@ -128,35 +128,21 @@ class Fetcher:
         playlist_id_workers = [asyncio.create_task(worker_playlist_ids()) for _ in range(num_workers)]
         video_id_workers = [asyncio.create_task(worker_video_ids()) for _ in range(num_workers)]
 
-        # Add video_ids, playlist_ids, and user_ids to their respective queues
-        user_ids = user_ids or []
+        # Add playlist_ids and user_ids to their respective queues
         if user_ids:
             if isinstance(user_ids, str):
                 user_ids = user_ids.replace(',', ' ').split()
-
                 for user_id in user_ids:
                     await user_id_queue.put(user_id)
 
-        playlist_ids = playlist_ids or []
         if playlist_ids:
             if isinstance(playlist_ids, str):
                 playlist_ids = playlist_ids.replace(',', ' ').split()
-
                 for playlist_id in playlist_ids:
                     await playlist_id_queue.put(playlist_id)
 
-
-        video_ids = video_ids or []
-        if video_ids:
-            if isinstance(video_ids, str):
-                video_ids = video_ids.replace(',', ' ').split()
-
-                for video_id in video_ids:
-                    await video_id_queue.put(video_id)
-
-        # Process any files and add video_ids, playlist_ids, and user_ids to their respective queues
+        # Process any files and add playlist_ids and user_ids to their respective queues
         if user_id_files:
-            user_ids = user_ids or []
             if isinstance(user_id_files, str):
                 user_id_files = user_id_files.replace(',', ' ').split()
                 for file in user_id_files:
@@ -165,7 +151,6 @@ class Fetcher:
                         await user_id_queue.put(user_id)
 
         if playlist_id_files:
-            playlist_ids = playlist_ids or []
             if isinstance(playlist_id_files, str):
                 playlist_id_files = playlist_id_files.replace(',', ' ').split()
                 for file in playlist_id_files:
@@ -173,20 +158,12 @@ class Fetcher:
                     for playlist_id in playlist_ids:
                         await playlist_id_queue.put(playlist_id)
         
-        if video_id_files:
-            video_ids = video_ids or []
-            if isinstance(video_id_files, str):
-                video_id_files = video_id_files.replace(',', ' ').split()
-                for file in video_id_files:
-                    _, file_extension = os.path.splitext(file)
-                    if file_extension == '.txt':
-                        logger.info(f"Attempting to insert videos from {file}")
-                        await DatabaseOperations.insert_video_ids_bulk(file)
-                        logger.info(f"Currrent count of videos to be processed: {await DatabaseOperations.get_count_videos_to_be_processed()}")
-                    elif file_extension == '.csv':
-                        playlist_ids.extend(Utils.read_ids_from_file(file))
-                        for playlist_id in playlist_ids:
-                            await playlist_id_queue.put(playlist_id)
+        try:
+            if video_ids or video_id_files:
+                Utils.read_ids_from_cli_argument_insert_db(video_ids, video_id_files)
+
+        except Exception as e:
+            return
 
         # Wait for all workers to finish
         await asyncio.gather(*user_id_workers, *playlist_id_workers, *video_id_workers, return_exceptions=True)

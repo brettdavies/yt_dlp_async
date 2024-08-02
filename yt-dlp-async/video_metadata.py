@@ -159,7 +159,7 @@ class Fetcher:
     shutdown_event = asyncio.Event()
 
     @staticmethod
-    async def fetch(anything=None, num_workers: int = 2):
+    async def fetch(video_ids=None, video_id_files=None, num_workers: int = 2):
         global YT_API_KEY
 
         try:
@@ -175,6 +175,13 @@ class Fetcher:
 
         retrieve_metadata_workers = [asyncio.create_task(worker_retrieve_metadata(worker_id=f"retrieve_{i}")) for i in range(num_workers)]
         save_metadata_workers = [asyncio.create_task(worker_save_metadata(worker_id=f"save_{i}")) for i in range(min(num_workers * 50, 150))]
+
+        try:
+            if video_ids or video_id_files:
+                Utils.read_ids_from_cli_argument_insert_db(video_ids, video_id_files)
+
+        except Exception as e:
+            return
 
         await asyncio.gather(*retrieve_metadata_workers)
         Fetcher.shutdown_event.set()  # Signal workers to shut down
