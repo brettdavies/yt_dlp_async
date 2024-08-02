@@ -2,6 +2,8 @@ import os
 import sys
 import asyncio
 from asyncpg import create_pool
+import shutil
+from datetime import datetime
 import fire
 from dataclasses import dataclass
 from loguru import logger
@@ -10,12 +12,31 @@ from .database import DatabaseOperations
 import yt_dlp # The yt_dlp library is not directly used in this file. It is called by a subprocess. The library needs to be installed in the python environment. Referenced here for poetry dependency checks purposes.
 
 # Configure loguru
+# Log file directory and base name
+script_name = "id"
+log_file_name = f"video_{script_name}.log"
+log_file_dir = "./data/log/"
+log_file_path = os.path.join(log_file_dir, log_file_name)
+
+# Ensure the log directory exists
+os.makedirs(log_file_dir, exist_ok=True)
+
+# Check if the log file exists
+if os.path.exists(log_file_path):
+    # Create a new name for the old log file with timestamp
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    new_log_file_path = os.path.join(log_file_dir, f"video_{script_name}_{timestamp}.log")
+    # Rename the old log file
+    shutil.move(log_file_path, new_log_file_path)
+
+# Remove all existing handlers
 logger.remove()
+
 # Add a logger for the screen (stderr)
 logger.add(sys.stderr, format="{time} - {level} - {message}", level="INFO")
 
 # Add a logger for the log file
-logger.add("../data/video_id.log", format="{time} - {level} - {message}", level="INFO")
+logger.add(log_file_path, format="{time} - {level} - {message}", level="INFO")
 
 # Queues for different types of IDs
 user_id_queue = asyncio.Queue()
