@@ -1,10 +1,12 @@
+""" Youtube related databse objects """
+
 -- Create the videos_to_be_processed table
-CREATE TABLE videos_to_be_processed (
+CREATE TABLE yt_videos_to_be_processed (
     video_id VARCHAR(255) PRIMARY KEY
 );
 
 -- Create the metadata table
-CREATE TABLE metadata (
+CREATE TABLE yt_metadata (
     video_id VARCHAR(255) PRIMARY KEY,
     kind VARCHAR(50),
     etag VARCHAR(255),
@@ -40,7 +42,7 @@ CREATE TABLE metadata (
 );
 
 -- Create the topic_categories table
-CREATE TABLE tags (
+CREATE TABLE yt_tags (
     tag_id SERIAL PRIMARY KEY,
     video_id VARCHAR(255) NOT NULL,
     tag TEXT,
@@ -53,7 +55,7 @@ CREATE TABLE tags (
 
 
 -- Create the thumbnails table
-CREATE TABLE thumbnails (
+CREATE TABLE yt_thumbnails (
     thumbnail_id SERIAL PRIMARY KEY,
     video_id VARCHAR(255) NOT NULL,
     thumbnail_size VARCHAR(20),
@@ -68,7 +70,7 @@ CREATE TABLE thumbnails (
 );
 
 -- Create the localized_info table
-CREATE TABLE localized_info (
+CREATE TABLE yt_localized_info (
     localized_id SERIAL PRIMARY KEY,
     video_id VARCHAR(255) NOT NULL,
     language VARCHAR(10),
@@ -82,7 +84,7 @@ CREATE TABLE localized_info (
 );
 
 -- Create the topic_categories table
-CREATE TABLE topic_categories (
+CREATE TABLE yt_topic_categories (
     topic_id SERIAL PRIMARY KEY,
     video_id VARCHAR(255) NOT NULL,
     category TEXT,
@@ -94,7 +96,7 @@ CREATE TABLE topic_categories (
 );
 
 -- Create the content_rating table
-CREATE TABLE content_rating (
+CREATE TABLE yt_content_rating (
     rating_id SERIAL PRIMARY KEY,
     video_id VARCHAR(255) NOT NULL,
     rating_type VARCHAR(50),
@@ -107,7 +109,7 @@ CREATE TABLE content_rating (
 );
 
 -- Create the recording_details table
-CREATE TABLE recording_details (
+CREATE TABLE yt_recording_details (
     recording_id SERIAL PRIMARY KEY,
     video_id VARCHAR(255) NOT NULL,
     recording_date DATE,
@@ -120,7 +122,7 @@ CREATE TABLE recording_details (
 );
 
 -- Create the transcripts table
-CREATE TABLE transcripts (
+CREATE TABLE yt_transcripts (
     transcript_id SERIAL PRIMARY KEY,
     video_id VARCHAR(255) NOT NULL,
     transcript_text TEXT,
@@ -134,7 +136,7 @@ CREATE TABLE transcripts (
 );
 
 -- Create the video_file table
-CREATE TABLE video_file (
+CREATE TABLE yt_video_file (
     video_id VARCHAR(255) PRIMARY KEY,
     local_path VARCHAR(255),
     file_size INTEGER DEFAULT 0,
@@ -148,25 +150,25 @@ CREATE TABLE video_file (
 );
 
 -- Create indexes
-CREATE INDEX idx_metadata_published_at ON metadata(published_at);
-CREATE INDEX idx_metadata_channel_id ON metadata(channel_id);
-CREATE INDEX idx_tags_video_id ON tags(video_id);
-CREATE INDEX idx_thumbnails_video_id ON thumbnails(video_id);
-CREATE INDEX idx_localized_info_video_id ON localized_info(video_id);
-CREATE INDEX idx_topic_categories_video_id ON topic_categories(video_id);
-CREATE INDEX idx_content_rating_video_id ON content_rating(video_id);
-CREATE INDEX idx_recording_details_video_id ON recording_details(video_id);
-CREATE INDEX idx_transcripts_video_id ON transcripts(video_id);
-CREATE INDEX idx_video_file_video_id ON video_file(video_id);
+CREATE INDEX idx_yt_metadata_published_at ON yt_metadata(published_at);
+CREATE INDEX idx_yt_etadata_channel_id ON yt_metadata(channel_id);
+CREATE INDEX idx_yt_tags_video_id ON yt_tags(video_id);
+CREATE INDEX idx_yt_thumbnails_video_id ON yt_thumbnails(video_id);
+CREATE INDEX idx_yt_localized_info_video_id ON yt_localized_info(video_id);
+CREATE INDEX idx_yt_topic_categories_video_id ON yt_topic_categories(video_id);
+CREATE INDEX idx_yt_content_rating_video_id ON yt_content_rating(video_id);
+CREATE INDEX idx_yt_recording_details_video_id ON yt_recording_details(video_id);
+CREATE INDEX idx_yt_transcripts_video_id ON yt_transcripts(video_id);
+CREATE INDEX idx_yt_video_file_video_id ON yt_video_file(video_id);
 
 -- Create custom contstraint indexes
-CREATE UNIQUE INDEX tags_video_id_category_key ON tags(video_id, tag);  -- Ensuring uniqueness for (video_id, category)
-CREATE UNIQUE INDEX thumbnails_video_id_size_key ON thumbnails(video_id, thumbnail_size);  -- Ensuring uniqueness for (video_id, thumbnail_size)
-CREATE UNIQUE INDEX localized_video_id_language_key ON localized_info(video_id, language);  -- Ensuring uniqueness for (video_id, language)
-CREATE UNIQUE INDEX topic_categories_video_id_category_key ON topic_categories(video_id, category);  -- Ensuring uniqueness for (video_id, category)
-CREATE UNIQUE INDEX content_rating_video_id_rating_key ON content_rating(video_id, rating_type);  -- Ensuring uniqueness for (video_id, rating_type)
-CREATE UNIQUE INDEX recording_details_video_id_key ON recording_details(video_id, recording_date, recording_location);  -- Ensuring uniqueness for (video_id, recording_date, recording_location)
-CREATE UNIQUE INDEX transcripts_video_id_size_key ON transcripts(video_id, language);  -- Ensuring uniqueness for (video_id, language)
+CREATE UNIQUE INDEX yt_tags_video_id_category_key ON yt_tags(video_id, tag);  -- Ensuring uniqueness for (video_id, category)
+CREATE UNIQUE INDEX yt_thumbnails_video_id_size_key ON yt_thumbnails(video_id, thumbnail_size);  -- Ensuring uniqueness for (video_id, thumbnail_size)
+CREATE UNIQUE INDEX yt_localized_video_id_language_key ON yt_localized_info(video_id, language);  -- Ensuring uniqueness for (video_id, language)
+CREATE UNIQUE INDEX yt_topic_categories_video_id_category_key ON yt_topic_categories(video_id, category);  -- Ensuring uniqueness for (video_id, category)
+CREATE UNIQUE INDEX yt_content_rating_video_id_rating_key ON yt_content_rating(video_id, rating_type);  -- Ensuring uniqueness for (video_id, rating_type)
+CREATE UNIQUE INDEX yt_recording_details_video_id_key ON yt_recording_details(video_id, recording_date, recording_location);  -- Ensuring uniqueness for (video_id, recording_date, recording_location)
+CREATE UNIQUE INDEX yt_transcripts_video_id_size_key ON yt_transcripts(video_id, language);  -- Ensuring uniqueness for (video_id, language)
 
 -- Trigger function to update modified_at column
 CREATE OR REPLACE FUNCTION update_modified_at_column()
@@ -178,48 +180,48 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Trigger to call the update modified_at function on update
-CREATE TRIGGER update_metadata_modified_at
-BEFORE UPDATE ON metadata
+CREATE TRIGGER update_yt_metadata_modified_at
+BEFORE UPDATE ON yt_metadata
 FOR EACH ROW
 EXECUTE FUNCTION update_modified_at_column();
 
-CREATE TRIGGER update_tags_modified_at
-BEFORE UPDATE ON tags
+CREATE TRIGGER update_yt_tags_modified_at
+BEFORE UPDATE ON yt_tags
 FOR EACH ROW
 EXECUTE FUNCTION update_modified_at_column();
 
-CREATE TRIGGER update_thumbnails_modified_at
-BEFORE UPDATE ON thumbnails
+CREATE TRIGGER update_yt_thumbnails_modified_at
+BEFORE UPDATE ON yt_thumbnails
 FOR EACH ROW
 EXECUTE FUNCTION update_modified_at_column();
 
-CREATE TRIGGER update_localized_info_modified_at
-BEFORE UPDATE ON localized_info
+CREATE TRIGGER update_yt_localized_info_modified_at
+BEFORE UPDATE ON yt_localized_info
 FOR EACH ROW
 EXECUTE FUNCTION update_modified_at_column();
 
-CREATE TRIGGER update_topic_categories_modified_at
-BEFORE UPDATE ON topic_categories
+CREATE TRIGGER update_yt_topic_categories_modified_at
+BEFORE UPDATE ON yt_topic_categories
 FOR EACH ROW
 EXECUTE FUNCTION update_modified_at_column();
 
-CREATE TRIGGER update_content_rating_modified_at
-BEFORE UPDATE ON content_rating
+CREATE TRIGGER update_yt_content_rating_modified_at
+BEFORE UPDATE ON yt_content_rating
 FOR EACH ROW
 EXECUTE FUNCTION update_modified_at_column();
 
-CREATE TRIGGER update_recording_details_modified_at
-BEFORE UPDATE ON recording_details
+CREATE TRIGGER update_yt_recording_details_modified_at
+BEFORE UPDATE ON yt_recording_details
 FOR EACH ROW
 EXECUTE FUNCTION update_modified_at_column();
 
-CREATE TRIGGER update_transcripts_video_modified_at
-BEFORE UPDATE ON transcripts
+CREATE TRIGGER update_yt_transcripts_video_modified_at
+BEFORE UPDATE ON yt_transcripts
 FOR EACH ROW
 EXECUTE FUNCTION update_modified_at_column();
 
-CREATE TRIGGER update_video_file_modified_at
-BEFORE UPDATE ON video_file
+CREATE TRIGGER update_yt_video_file_modified_at
+BEFORE UPDATE ON yt_video_file
 FOR EACH ROW
 EXECUTE FUNCTION update_modified_at_column();
 
@@ -227,7 +229,7 @@ EXECUTE FUNCTION update_modified_at_column();
 CREATE OR REPLACE FUNCTION propagate_soft_delete_to_related_tables()
 RETURNS TRIGGER AS $$
 DECLARE
-    tables TEXT[] := ARRAY['tags', 'thumbnails', 'localized_info', 'topic_categories', 'content_rating', 'recording_details', 'transcripts', 'video_file'];
+    tables TEXT[] := ARRAY['yt_tags', 'yt_thumbnails', 'yt_localized_info', 'yt_topic_categories', 'yt_content_rating', 'yt_recording_details', 'yt_transcripts', 'yt_video_file'];
     table_name TEXT;
 BEGIN
     IF NEW.deleted_at IS NOT NULL THEN
@@ -241,26 +243,27 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Trigger to call the soft delete function on update
-CREATE TRIGGER propagate_metadata_soft_delete
-AFTER UPDATE ON metadata
+CREATE TRIGGER propagate_yt_metadata_soft_delete
+AFTER UPDATE ON yt_metadata
 FOR EACH ROW
 WHEN (OLD.deleted_at IS NULL AND NEW.deleted_at IS NOT NULL)
 EXECUTE FUNCTION propagate_soft_delete_to_related_tables();
 
 -- Trigger function to remove video_id from videos_to_be_processed
-CREATE OR REPLACE FUNCTION delete_from_videos_to_be_processed() RETURNS TRIGGER AS $$
+CREATE OR REPLACE FUNCTION delete_from_yt_videos_to_be_processed() RETURNS TRIGGER AS $$
 BEGIN
-    DELETE FROM videos_to_be_processed WHERE video_id = NEW.video_id;
+    DELETE FROM yt_videos_to_be_processed WHERE video_id = NEW.video_id;
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
 -- Trigger to call the delete function on insert
-CREATE TRIGGER after_metadata_insert
+CREATE TRIGGER after_yt_metadata_insert
 AFTER INSERT ON metadata
 FOR EACH ROW
-EXECUTE FUNCTION delete_from_videos_to_be_processed();
+EXECUTE FUNCTION delete_from_yt_videos_to_be_processed();
 
+""" Final global permissioning """
 -- Grant necessary permissions (adjust as needed)
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO admin;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO admin;
