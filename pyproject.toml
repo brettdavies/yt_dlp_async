@@ -16,10 +16,12 @@ asyncpg = "^0.29.0"
 python-dotenv = "^1.0.1"
 aiomultiprocess = "^0.9.1"
 aiohttp = "^3.10.0"
+pandas = "^2.2.2"
 
 [tool.poetry.scripts]
 get-video-id = "yt-dlp-async.video_id:cmd"
 get-metadata = "yt-dlp-async.video_metadata:cmd"
+get-audio-file = "yt-dlp-async.video_file:cmd"
 
 [build-system]
 requires = ["poetry-core"]

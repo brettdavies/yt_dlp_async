@@ -263,6 +263,27 @@ AFTER INSERT ON metadata
 FOR EACH ROW
 EXECUTE FUNCTION delete_from_yt_videos_to_be_processed();
 
+""" ESPN related databse objects """
+-- Create the topic_categories table
+CREATE TABLE e_events (
+    event_id VARCHAR(255) PRIMARY KEY,
+    date TIMESTAMP WITH TIME ZONE,
+    type VARCHAR(25),
+    short_name VARCHAR(25),
+    normalized_name VARCHAR(25),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMP WITH TIME ZONE,
+    CONSTRAINT unique_e_events UNIQUE (event_id)  -- Unique constraint
+);
+
+-- Trigger to call the update modified_at function on update
+CREATE TRIGGER update_e_events_modified_at
+BEFORE UPDATE ON e_events
+FOR EACH ROW
+EXECUTE FUNCTION update_modified_at_column();
+
+
 """ Final global permissioning """
 -- Grant necessary permissions (adjust as needed)
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO admin;

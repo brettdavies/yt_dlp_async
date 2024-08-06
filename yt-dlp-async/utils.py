@@ -1,7 +1,11 @@
 import os
+import re
 import json
 from typing import Any, Dict, List
 from .database import DatabaseOperations
+from .metadata import Metadata
+
+team_abbreviations = Metadata.team_abbreviations
 
 class Utils:
     @staticmethod
@@ -114,3 +118,70 @@ class Utils:
         }
     
         return metadata
+
+    @staticmethod
+    def extract_teams(text):
+        # Normalize the title to lowercase for consistent comparison
+        normalized_text = text.lower()
+        
+        for delimiter in [' at ', ' @ ', ' vs ', ' vs. ']:
+            if delimiter in normalized_text:
+                parts = normalized_text.split(delimiter)
+                # print(f"{parts}")
+
+                # Initialize sets for candidates
+                team_a_candidates = set()
+                team_b_candidates = set()
+                
+                # Create a function to check for multi-word phrases
+                def find_team_candidates(part, candidates_set):
+                    for team in team_abbreviations:
+                        # Check if team_lower is a whole phrase in part
+                        if re.search(r'\b' + re.escape(team) + r'\b', part):
+                            # print(f"TEAM CANDIDATE: {team} {team_abbreviations.get(team, 'Unknown')}")
+                            candidates_set.add(team_abbreviations.get(team, 'Unknown'))
+                            part = part.replace(team, '').strip()
+                
+                # Check and extract team names from parts[0]
+                find_team_candidates(parts[0], team_a_candidates)
+                
+                # Check and extract team names from parts[1]
+                find_team_candidates(parts[1], team_b_candidates)
+                
+                # Handle cases with detected candidates
+                if len(team_a_candidates) == 1 and len(team_b_candidates) > 1:
+                    known_team_a = next(iter(team_a_candidates))
+                    team_b_candidates.discard(known_team_a)
+                    
+                    if len(team_b_candidates) == 1:
+                        team_b = next(iter(team_b_candidates))
+                        return f"{team_abbreviations.get(known_team_a, 'Unknown')} at {team_abbreviations.get(team_b, 'Unknown')}", text
+                
+                elif len(team_b_candidates) == 1 and len(team_a_candidates) > 1:
+                    known_team_b = next(iter(team_b_candidates))
+                    team_a_candidates.discard(known_team_b)
+                    
+                    if len(team_a_candidates) == 1:
+                        team_a = next(iter(team_a_candidates))
+                        return f"{team_abbreviations.get(team_a, 'Unknown')} at {team_abbreviations.get(known_team_b, 'Unknown')}", text
+                
+                elif len(team_a_candidates) > 1 and len(team_b_candidates) > 1:
+                    # return f"Unknown at Unknown -- {normalized_text}"
+                    return f"Unknown at Unknown", text
+                
+                elif len(team_a_candidates) == 1 and len(team_b_candidates) == 1:
+                    team_a = next(iter(team_a_candidates))
+                    team_b = next(iter(team_b_candidates))
+                    if delimiter == ' at ' or delimiter == ' @ ':
+                        return f"{team_a} at {team_b}", text
+                    elif delimiter == ' vs ' or delimiter == ' vs. ':
+                        return f"{team_b} at {team_a}", text
+        
+        # Handle cases where only one team is mentioned
+        team_candidates = set(team for team in team_abbreviations if team.lower() in normalized_text)
+        if len(team_candidates) == 1:
+            team = next(iter(team_candidates))
+            # return f"Unknown at {team_abbreviations.get(team, 'Unknown')} -- {normalized_text}"
+            return f"Unknown at {team_abbreviations.get(team, 'Unknown')}", text
+        
+        return None, text

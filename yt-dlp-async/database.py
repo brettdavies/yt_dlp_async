@@ -1,6 +1,9 @@
 import os
 import asyncio
+import datetime
+import pandas as pd
 from psycopg2 import pool
+from datetime import datetime
 from dotenv import load_dotenv
 from typing import Any, Dict, List
 # from .video_id import Logging
@@ -315,16 +318,46 @@ class DatabaseOperations:
         finally:
             DatabaseOperations.release_db_connection(conn)
 
+    @staticmethod
+    async def insert_e_events(df: pd.DataFrame):
+        # Ensure the DataFrame has the required columns
+        required_columns = ['event_id', 'date', 'type', 'short_name', 'normalized_name']
+        if not all(column in df.columns for column in required_columns):
+            raise ValueError(f"DataFrame must contain the following columns: {', '.join(required_columns)}")
 
-            # # Transcripts Video Table
-            # sql_transcript = """
-            # INSERT INTO transcripts_video (
-            #   video_id, transcript_text, language, is_auto_generated
-            # ) VALUES (
-            #   '{video_id}', '{transcript_text}', '{language}', {is_auto_generated}
-            # ) ON CONFLICT (video_id, language) DO UPDATE SET
-            #   transcript_text = EXCLUDED.transcript_text,
-            #   is_auto_generated = EXCLUDED.is_auto_generated;
-            # """.format(**metadata)
+        # Extract the data to be inserted
+        records = df[required_columns].values.tolist()
+        print(f"{records}")
+        conn = DatabaseOperations.get_db_connection()
+        try:
+            query = """
+            INSERT INTO e_events (event_id, date, type, short_name, normalized_name)
+            VALUES (
+            %s, %s, %s, %s, %s
+            ) ON CONFLICT (event_id) DO NOTHING
+            """
+            with conn.cursor() as cursor:
+                # Batch insert records using parameterized queries to prevent SQL injection
+                cursor.executemany(query, records)
 
-            # cursor.execute(sql_transcript)
+            conn.commit()
+    
+        finally:
+            DatabaseOperations.release_db_connection(conn)
+
+    @staticmethod
+    async def fetch_existing_e_events_by_date(date_obj: datetime):
+        conn = DatabaseOperations.get_db_connection()
+        try:
+            query = """
+            SELECT COUNT(1) FROM e_events
+            WHERE date::date = %s::date
+            """
+            with conn.cursor() as cur:
+                cur.execute(query, (date_obj,))
+                count_result = cur.fetchone()[0]  # Fetch the result and extract the first column value
+            conn.commit()
+        finally:
+            DatabaseOperations.release_db_connection(conn)
+            
+        return (count_result > 0)
