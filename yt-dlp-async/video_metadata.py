@@ -22,7 +22,7 @@ YT_API_KEY=""
 # Log file directory and base name
 script_name = "metadata"
 log_file_name = f"video_{script_name}.log"
-log_file_dir = "./data/log/"
+log_file_dir = "../data/log/"
 log_file_path = os.path.join(log_file_dir, log_file_name)
 
 # Ensure the log directory exists
@@ -60,14 +60,9 @@ active_tasks = {
 
 class Logging:
     @staticmethod
-    def log_environment_info():
-        logger.info("Environment Information:")
-        logger.info(f"Python version: {sys.version}")
-
-    # Function to log the state of queues and tasks
     def log_state():
+        # Function to log the state of queues and tasks
         logger.info(f"metadata_queue size: {metadata_queue.qsize()}, active tasks: {active_tasks['video_id']}")
-
 
 class VideoIdOperations:
     # Function to fetch video metadata from the YouTube Data API

@@ -15,7 +15,7 @@ import yt_dlp # The yt_dlp library is not directly used in this file. It is call
 # Log file directory and base name
 script_name = "id"
 log_file_name = f"video_{script_name}.log"
-log_file_dir = "./data/log/"
+log_file_dir = "../data/log/"
 log_file_path = os.path.join(log_file_dir, log_file_name)
 
 # Ensure the log directory exists
@@ -52,12 +52,8 @@ active_tasks = {
 
 class Logging:
     @staticmethod
-    def log_environment_info():
-        logger.info("Environment Information:")
-        logger.info(f"Python version: {sys.version}")
-
-    # Function to log the state of queues and tasks
     def log_state():
+        # Function to log the state of queues and tasks
         logger.info(f"user_id_queue size: {user_id_queue.qsize()}, active tasks: {active_tasks['user_id']}")
         logger.info(f"playlist_id_queue size: {playlist_id_queue.qsize()}, active tasks: {active_tasks['playlist_id']}")
         logger.info(f"video_id_queue size: {video_id_queue.qsize()}, active tasks: {active_tasks['video_id']}")
@@ -120,8 +116,6 @@ class Fetcher:
         if not isinstance(num_workers, int) or num_workers <=0 :
             logger.error(f"num_workers must be a positive integer. The passed value was: {num_workers}")
             return
-    
-        Logging.log_environment_info()
 
         # Create worker tasks
         user_id_workers = [asyncio.create_task(worker_user_ids()) for _ in range(num_workers)]
