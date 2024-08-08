@@ -1,7 +1,7 @@
 import os
 import re
 import json
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 from .database import DatabaseOperations
 from .metadata import Metadata
 
@@ -120,68 +120,66 @@ class Utils:
         return metadata
 
     @staticmethod
-    def extract_teams(text):
+    def extract_teams(text) -> Tuple[str, str]:
+        """
+        Returns normalized home_team and away_team as defined in Metadata.team_abbreviations.
+
+        Returns 'Unknown' for one or both teams if the team_abbreviations lookup fails.
+        """
         # Normalize the title to lowercase for consistent comparison
         normalized_text = text.lower()
         
+        # List of delimiters to look for
         for delimiter in [' at ', ' @ ', ' vs ', ' vs. ']:
             if delimiter in normalized_text:
+                # Split the text by the delimiter
                 parts = normalized_text.split(delimiter)
-                # print(f"{parts}")
 
-                # Initialize sets for candidates
-                team_a_candidates = set()
-                team_b_candidates = set()
+                # Initialize sets for candidate teams
+                away_team_candidates = set()
+                home_team_candidates = set()
                 
-                # Create a function to check for multi-word phrases
+                # Function to find team candidates within a part of the text
                 def find_team_candidates(part, candidates_set):
                     for team in team_abbreviations:
-                        # Check if team_lower is a whole phrase in part
                         if re.search(r'\b' + re.escape(team) + r'\b', part):
-                            # print(f"TEAM CANDIDATE: {team} {team_abbreviations.get(team, 'Unknown')}")
                             candidates_set.add(team_abbreviations.get(team, 'Unknown'))
-                            part = part.replace(team, '').strip()
                 
-                # Check and extract team names from parts[0]
-                find_team_candidates(parts[0], team_a_candidates)
+                # Extract team names from parts[0] (LHS of delimiter, away team)
+                find_team_candidates(parts[0], away_team_candidates)
                 
-                # Check and extract team names from parts[1]
-                find_team_candidates(parts[1], team_b_candidates)
+                # Extract team names from parts[1] (RHS of delimiter, home team)
+                find_team_candidates(parts[1], home_team_candidates)
                 
-                # Handle cases with detected candidates
-                if len(team_a_candidates) == 1 and len(team_b_candidates) > 1:
-                    known_team_a = next(iter(team_a_candidates))
-                    team_b_candidates.discard(known_team_a)
+                # print(f"Delimiter: |{delimiter}|")
+                # print(f"Away team candidates (LHS): {away_team_candidates}")
+                # print(f"Home team candidates (RHS): {home_team_candidates}")
+
+                # Handle different candidate scenarios
+                if len(away_team_candidates) == 1 and len(home_team_candidates) == 1:
+                    # Both sides have exactly one candidate team
+                    known_away_team = next(iter(away_team_candidates))
+                    known_home_team = next(iter(home_team_candidates))
+                    return known_home_team, known_away_team
+                
+                elif len(away_team_candidates) == 1 and len(home_team_candidates) > 1:
+                    known_away_team = next(iter(away_team_candidates))
+                    home_team_candidates.discard(known_away_team)
                     
-                    if len(team_b_candidates) == 1:
-                        team_b = next(iter(team_b_candidates))
-                        return f"{team_abbreviations.get(known_team_a, 'Unknown')} at {team_abbreviations.get(team_b, 'Unknown')}", text
-                
-                elif len(team_b_candidates) == 1 and len(team_a_candidates) > 1:
-                    known_team_b = next(iter(team_b_candidates))
-                    team_a_candidates.discard(known_team_b)
+                    if len(home_team_candidates) == 1:
+                        known_home_team = next(iter(home_team_candidates))
+                        return known_home_team, known_away_team
                     
-                    if len(team_a_candidates) == 1:
-                        team_a = next(iter(team_a_candidates))
-                        return f"{team_abbreviations.get(team_a, 'Unknown')} at {team_abbreviations.get(known_team_b, 'Unknown')}", text
+                elif len(home_team_candidates) == 1 and len(away_team_candidates) > 1:
+                    known_home_team = next(iter(home_team_candidates))
+                    away_team_candidates.discard(known_home_team)
+                    
+                    if len(away_team_candidates) == 1:
+                        known_away_team = next(iter(away_team_candidates))
+                        return known_home_team, known_away_team
                 
-                elif len(team_a_candidates) > 1 and len(team_b_candidates) > 1:
-                    # return f"Unknown at Unknown -- {normalized_text}"
-                    return f"Unknown at Unknown", text
-                
-                elif len(team_a_candidates) == 1 and len(team_b_candidates) == 1:
-                    team_a = next(iter(team_a_candidates))
-                    team_b = next(iter(team_b_candidates))
-                    if delimiter == ' at ' or delimiter == ' @ ':
-                        return f"{team_a} at {team_b}", text
-                    elif delimiter == ' vs ' or delimiter == ' vs. ':
-                        return f"{team_b} at {team_a}", text
-        
-        # Handle cases where only one team is mentioned
-        team_candidates = set(team for team in team_abbreviations if team.lower() in normalized_text)
-        if len(team_candidates) == 1:
-            team = next(iter(team_candidates))
-            # return f"Unknown at {team_abbreviations.get(team, 'Unknown')} -- {normalized_text}"
-            return f"Unknown at {team_abbreviations.get(team, 'Unknown')}", text
-        
-        return None, text
+                if len(away_team_candidates) > 1 and len(home_team_candidates) > 1:
+                    return 'Unknown', 'Unknown'
+
+        # Handle cases where no known delimiter is found or the team extraction fails
+        return 'Unknown', 'Unknown'

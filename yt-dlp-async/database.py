@@ -5,7 +5,7 @@ import pandas as pd
 from psycopg2 import pool
 from datetime import datetime
 from dotenv import load_dotenv
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 # from .video_id import Logging
 
 # Load environment variables from .env file
@@ -38,6 +38,9 @@ class DatabaseOperations:
                 count_result = cur.fetchone()[0]  # Fetch the result and extract the first column value
                 # Logging.logger.info(f"get_video_count(): videos_to_be_processed: {count_result}")
             conn.commit()
+        except Exception as e:
+            print(f"An error occurred: {e}")
+            return None
         finally:
             DatabaseOperations.release_db_connection(conn)
         
@@ -77,6 +80,9 @@ class DatabaseOperations:
                 result = cursor.fetchall()  # Fetch all results
                 video_ids = [row[0] for row in result]  # Extract video IDs from the results
             conn.commit()
+        except Exception as e:
+            print(f"An error occurred: {e}")
+            return False  # Handle exception case
         finally:
             DatabaseOperations.release_db_connection(conn)
 
@@ -84,9 +90,6 @@ class DatabaseOperations:
 
     @staticmethod
     async def insert_video_ids(video_ids: List[str]):
-        # Logging.logger.info(f"Attempting to insert video_ids: {len(video_ids)}")
-        # Logging.logger.info(f"start insert_video_ids: inserting {video_ids}")
-        
         conn = DatabaseOperations.get_db_connection()
         try:
             query = """
@@ -97,9 +100,9 @@ class DatabaseOperations:
             with conn.cursor() as cursor:
                 # Batch insert video IDs
                 cursor.executemany(query, [(vid,) for vid in video_ids])
-
             conn.commit()
-    
+        except Exception as e:
+            print(f"An error occurred: {e}")
         finally:
             DatabaseOperations.release_db_connection(conn)
 
@@ -144,7 +147,8 @@ class DatabaseOperations:
             cursor.execute(drop_temp_table_sql)
 
             conn.commit()
-    
+        except Exception as e:
+            print(f"An error occurred: {e}")
         finally:
             DatabaseOperations.release_db_connection(conn)
 
@@ -311,7 +315,6 @@ class DatabaseOperations:
             # ))
 
             conn.commit()
-
         except Exception as e:
             print(f"Sql Error when writing metadata for video {metadata['video_id']}:\n{e}")
 
@@ -321,43 +324,182 @@ class DatabaseOperations:
     @staticmethod
     async def insert_e_events(df: pd.DataFrame):
         # Ensure the DataFrame has the required columns
-        required_columns = ['event_id', 'date', 'type', 'short_name', 'normalized_name']
+        required_columns = ['event_id', 'date', 'type', 'short_name', 'home_team', 'away_team', 'home_team_normalized','away_team_normalized']
         if not all(column in df.columns for column in required_columns):
             raise ValueError(f"DataFrame must contain the following columns: {', '.join(required_columns)}")
 
         # Extract the data to be inserted
         records = df[required_columns].values.tolist()
-        print(f"{records}")
         conn = DatabaseOperations.get_db_connection()
         try:
             query = """
-            INSERT INTO e_events (event_id, date, type, short_name, normalized_name)
+            INSERT INTO e_events (event_id, date, type, short_name, home_team, away_team, home_team_normalized, away_team_normalized)
             VALUES (
-            %s, %s, %s, %s, %s
+            %s, %s, %s, %s, %s, %s, %s, %s
             ) ON CONFLICT (event_id) DO NOTHING
             """
             with conn.cursor() as cursor:
                 # Batch insert records using parameterized queries to prevent SQL injection
                 cursor.executemany(query, records)
-
             conn.commit()
-    
+        except Exception as e:
+            print(f"An error occurred: {e}")
         finally:
             DatabaseOperations.release_db_connection(conn)
 
     @staticmethod
-    async def fetch_existing_e_events_by_date(date_obj: datetime):
+    async def check_if_existing_e_events_by_date(date_obj: datetime):
         conn = DatabaseOperations.get_db_connection()
         try:
             query = """
-            SELECT COUNT(1) FROM e_events
+            SELECT COUNT(1)
+            FROM e_events
             WHERE date::date = %s::date
             """
-            with conn.cursor() as cur:
-                cur.execute(query, (date_obj,))
-                count_result = cur.fetchone()[0]  # Fetch the result and extract the first column value
+            with conn.cursor() as cursor:
+                cursor.execute(query, (date_obj,))
+                count_result = cursor.fetchone()[0]  # Fetch the result and extract the first column value
             conn.commit()
+        except Exception as e:
+            print(f"An error occurred: {e}")
+            return False  # Handle exception case
         finally:
             DatabaseOperations.release_db_connection(conn)
             
         return (count_result > 0)
+    
+    @staticmethod
+    async def get_e_events_team_info(date_obj: datetime, opposing_team: str, is_home: bool) -> str:
+        """
+        Returns the normalized team abbreviation
+        """
+        try:
+            conn = DatabaseOperations.get_db_connection()
+            team_column = 'home_team_normalized' if is_home else 'away_team_normalized'
+            opposing_column = 'away_team' if is_home else 'home_team'
+            query = f"""
+            SELECT {team_column}
+            FROM e_events
+            WHERE date::date = %s::date
+                AND {opposing_column} = %s
+            """
+            with conn.cursor() as cursor:
+                cursor.execute(query, (date_obj, opposing_team))
+                result = cursor.fetchone()  # Fetch the result
+                if result:
+                    team = result  # Extract event_id and team
+                else:
+                    team = 'Unknown'  # Handle case where no result is found
+            conn.commit()
+        except Exception as e:
+            print(f"An error occurred: {e}")
+            event_id, team = 'Unknown'  # Handle exception case
+        finally:
+            DatabaseOperations.release_db_connection(conn)
+        return event_id, team
+
+    @staticmethod
+    async def get_e_events_event_id(date_obj: datetime, home_team: str, away_team: str) -> Optional[str]:
+        """
+        Returns e_event_id for the event on the specified date between the specified teams.
+
+        Date is required and must be in the America/New_York tz. At least one of the home_team or away_team must be known. Lookup will fail if both are 'Unknown'.
+        """
+        if home_team == 'Unknown' and away_team == 'Unknown':
+            return None
+
+        try:
+            conn = DatabaseOperations.get_db_connection()
+            cursor = conn.cursor()
+            
+            if home_team != 'Unknown' and away_team != 'Unknown':
+                query = """
+                SELECT event_id
+                FROM e_events
+                WHERE (date AT TIME ZONE 'America/New_York')::date = %s::date
+                    AND home_team_normalized = %s
+                    AND away_team_normalized = %s
+                """
+                cursor.execute(query, (date_obj, home_team, away_team))
+            else:
+                team_column = 'home_team_normalized' if home_team != 'Unknown' else 'away_team_normalized'
+                team_value = home_team if home_team != 'Unknown' else away_team
+                query = f"""
+                SELECT event_id
+                FROM e_events
+                WHERE (date AT TIME ZONE 'America/New_York')::date = %s::date
+                    AND {team_column} = %s
+                """
+                cursor.execute(query, (date_obj, team_value))
+            
+            result = cursor.fetchone()  # Fetch the result
+            if result:
+                event_id = result[0]  # Extract event_id
+            else:
+                event_id = None  # Handle case where no result is found
+            
+            conn.commit()
+        except Exception as e:
+            print(f"An error occurred: {e}")
+            event_id = None  # Handle exception case
+        finally:
+            DatabaseOperations.release_db_connection(conn)
+        
+        return event_id
+
+    @staticmethod
+    async def get_video_ids_without_files(forbidden_queue: asyncio.Queue) -> List[str]:
+        video_ids = []
+
+        # Retrieve forbidden video IDs from the queue
+        forbidden_video_ids = set()
+        while not forbidden_queue.empty():
+            video_id = await forbidden_queue.get()
+            forbidden_video_ids.add(video_id)
+
+        # If there are forbidden IDs, prepare the WHERE clause
+        forbidden_ids_list = list(forbidden_video_ids)
+        if forbidden_ids_list:
+            placeholders = ','.join(['%s'] * len(forbidden_ids_list))
+            forbidden_ids_str = f"AND m.video_id NOT IN ({placeholders})"
+        else:
+            forbidden_ids_str = ""
+
+        conn = DatabaseOperations.get_db_connection()
+        try:
+            with conn.cursor() as cursor:
+                query = f"""
+                    SELECT DISTINCT m.video_id
+                    FROM yt_metadata m
+                    LEFT JOIN yt_video_file vf ON m.video_id = vf.video_id
+                    WHERE TRUE
+                        {forbidden_ids_str}
+                        AND m.video_id IN (
+                            SELECT DISTINCT video_id
+                            FROM yt_tags
+                            WHERE lower(tag) ILIKE '%major league%'
+                            OR lower(tag) ILIKE '%mlb%'
+                            OR lower(tag) ILIKE '%baseball%'
+                            OR lower(tag) ILIKE '%alcs%'
+                            OR lower(tag) ILIKE '%nlcs%'
+                            OR lower(tag) ILIKE '%ws%'
+                            OR lower(tag) ILIKE '%world series%'
+                        )
+                    AND lower(m.title) NOT ILIKE '%draft%'
+                    AND m.duration >= interval '1 hour 15 minutes'
+                    AND vf.video_id IS NULL
+                    LIMIT 5;
+                """
+                # print(f"SQL QUERY: {query}")
+                # Execute the query with parameters
+                cursor.execute(query)
+                result = cursor.fetchall()  # Fetch all results
+                video_ids = [row[0] for row in result]  # Extract video IDs from the results
+            conn.commit()
+        except Exception as e:
+            print(f"An error occurred: {e}")
+            return False  # Handle exception case
+        finally:
+            DatabaseOperations.release_db_connection(conn)
+
+        return video_ids

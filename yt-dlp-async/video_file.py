@@ -8,7 +8,9 @@ import asyncio
 import fire
 import json
 from loguru import logger
+from typing import List
 from .utils import Utils
+from .database import DatabaseOperations
 from .e_events import EventFetcher
 import yt_dlp
 
@@ -39,11 +41,17 @@ logger.add(sys.stderr, format="{time} - {level} - {message}", level="INFO")
 # Add a logger for the log file
 logger.add(log_file_path, format="{time} - {level} - {message}", level="INFO")
 
-class Logging:
-    @staticmethod
-    def log_environment_info():
-        logger.info("Environment Information:")
-        logger.info(f"Python version: {sys.version}")
+# Queues
+video_file_queue = asyncio.Queue()
+forbidden_queue = asyncio.Queue()
+
+# URL
+base_url: str = "https://www.youtube.com/watch?v="
+
+# Counters to track the number of active tasks
+active_tasks = {
+    'video_file': 0
+}
 
 @dataclass(slots=True)
 class Fetcher:
@@ -52,89 +60,62 @@ class Fetcher:
         if not isinstance(num_workers, int) or num_workers <=0:
             logger.error(f"num_workers must be a positive integer. The passed value was: {num_workers}")
             return
-    
-        # Logging.log_environment_info()
 
+        # await video_file_queue.put('1dy-upHOvls')
+        video_ids: List[str] = await DatabaseOperations.get_video_ids_without_files(forbidden_queue)
+        for video_id in video_ids:
+            await video_file_queue.put(video_id)
+        
         # Example usage
-        video_id = '1dy-upHOvls'
-        url = f"https://www.youtube.com/watch?v={video_id}"
+        # video_id = '1dy-upHOvls'
+        # url = f"https://www.youtube.com/watch?v={video_id}"
         # asyncio.run(save_transcripts_to_file(url, f"./data/{video_id} transcripts.json"))
         # asyncio.run(save_auto_generated_transcripts_to_file(url, f"./data/{video_id} auto gen transcripts.json"))
         # asyncio.run(get_formats(url))
-        logger.info(f"url: {url}")
-        await asyncio.create_task(download_audio(url))
+        # logger.info(f"url: {url}")
+        # await asyncio.create_task(download_audio(url))
 
+        # Create worker tasks
+        video_file_workers = [asyncio.create_task(worker_retrieve_file(worker_id=f"retrieve_file_{i}")) for i in range(num_workers)]
 
-        # # Create worker tasks
-        # video_id_workers = [asyncio.create_task(worker_video_files()) for _ in range(num_workers)]
+        # Wait for all workers to finish
+        await asyncio.gather(*video_file_workers, return_exceptions=True)
 
-        # # Wait for all workers to finish
-        # await asyncio.gather(*video_id_workers, return_exceptions=True)
+        # Wait for all the queue tasks to finish before the script ends
+        await asyncio.gather(
+            video_file_queue.join()
+        )
 
-        # # Wait for all the queue tasks to finish before the script ends
-        # await asyncio.gather(
-        #     video_file_queue.join()
-        # )
+async def worker_retrieve_file(worker_id: str):
+    while True:
+        try:
+            active_tasks['video_file'] += 1
 
-# async def save_auto_generated_transcripts_to_file(video_url, filename):
-#     ydl_opts = {
-#         'quiet': True,  # Suppress other output
-#         'skip_download': True,  # Don't download the video
-#         'writeinfojson': False  # Prevent writing info.json file
-#     }
+            # if video_file_queue.qsize() <=1:
+            #     video_ids: List[str] = await DatabaseOperations.get_video_ids_without_files(forbidden_queue)
+            #     for video_id in video_ids:
+            #         await video_file_queue.put(video_id)
+            #     logger.info(f"[Worker {worker_id}] Size of video_file_queue after put: {video_file_queue.qsize()}")
 
-#     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-#         info = ydl.extract_info(video_url, download=False)
-#         # subtitles = info.get('subtitles', {})
-#         automatic_captions = info.get('automatic_captions', {})
+            if not video_file_queue.empty():
+                video_id = await asyncio.wait_for(video_file_queue.get(), timeout=1)
+                logger.info(f"[Worker {worker_id}] Size of video_file_queue after get: {video_file_queue.qsize()}")
+                await download_audio(base_url + video_id)
+                video_file_queue.task_done()
+            else:
+                await asyncio.sleep(.250)
 
-#         # Prepare data to be written to file
-#         data = {
-#             'video_url': video_url,
-#             'auto_generated_subtitles': {}
-#         }
+        except Exception as e:
+            logger.error(f"[Worker {worker_id}] Error: {e}")
+        finally:
+            active_tasks['video_file'] -= 1
+            if active_tasks['video_file'] == 0 and video_file_queue.qsize() == 0:
+                break
 
-#         # for lang, subs in subtitles.items():
-#         #     auto_generated = [sub for sub in subs if 'automatic' in sub['name'].lower()]
-#         #     if auto_generated:
-#         #         data['auto_generated_subtitles'][lang] = [sub['url'] for sub in auto_generated]
-
-#         for lang, subs in automatic_captions.items():
-#                 data['auto_generated_subtitles'][lang]
-
-#         # Write data to file
-#         with open(filename, 'w') as file:
-#             json.dump(data, file, indent=4)
-
-
-# async def save_transcripts_to_file(video_url, filename):
-#     ydl_opts = {
-#         'quiet': True,  # Suppress other output
-#         'skip_download': True,  # Don't download the video
-#     }
-
-#     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-#         info = ydl.extract_info(video_url, download=False)
-#         subtitles = info.get('subtitles', {})
-
-#         # Prepare data to be written to file
-#         data = {
-#             'video_url': video_url,
-#             'subtitles': {}
-#         }
-        
-#         for lang, subs in subtitles.items():
-#             data['subtitles'][lang] = []
-#             for sub in subs:
-#                 data['subtitles'][lang].append(sub['url'])
-
-#         # Write data to file
-#         with open(filename, 'w') as file:
-#             json.dump(data, file, indent=4)
-
-# Function to get available formats
+    logger.info(f"[Worker {worker_id}] Retrieve file worker has finished.")
 
 async def get_formats(url: str):
+    # Function to get available formats
     try:
         ydl_opts = {
             'listformats': True,
@@ -169,14 +150,21 @@ async def get_formats(url: str):
         print(f"Error: {e}")
 
 async def extract_date(text: str):
-    # Extract the date from text in DD.MM.YYYY format.
+    # Extract date in DD.MM.YYYY format
     date_match = re.search(r'(\d{2}\.\d{2}\.\d{4})', text)
     if date_match:
         date_str = date_match.group(1)
-        text = text.replace(date_match.group(0), '').strip()  # Remove date from the text
+        text = text.replace(date_match.group(0), '').strip()
         return datetime.strptime(date_str, '%d.%m.%Y'), text
-    else:
-        return None, text
+
+    # Extract date in "Month DD, YYYY" format
+    date_match = re.search(r'(\b\w+\s\d{1,2},\s\d{4}\b)', text)
+    if date_match:
+        date_str = date_match.group(1)
+        text = text.replace(date_match.group(0), '').strip()
+        return datetime.strptime(date_str, '%B %d, %Y'), text
+
+    return None, text
 
 async def format_duration(duration:int) -> str:
     try:
@@ -225,22 +213,32 @@ async def determine_path_and_name(info_dict: dict):
         path_date = date_obj.strftime('%Y/%m/%d')
         filename_date = date_obj.strftime('%Y.%m.%d')
 
-        # Run the EventFetcher asynchronously
+        # Run the EventFetcher
         await run_event_fetcher(path_date)
 
     # Try to extract teams from title first
-    teams_str, title = Utils.extract_teams(title)
+    home_team, away_team = Utils.extract_teams(title)
+    # logger.info(f"home_team, away_team after extract_teams: {away_team} at {home_team}")
 
-    # If neither team is not found in the title, try the description
-    if teams_str == 'Unknown at Unknown':
-        teams_str, description = Utils.extract_teams(description)
+    # If home_team is unknown, try looking it up in e_events using the date and away team
+    if home_team == 'Unknown':
+        home_team = await DatabaseOperations.get_e_events_team_info(date_obj, away_team, is_home_unknown=True)
+    # If away_team is unknown, try looking it up in e_events using the date and home team
+    elif away_team == 'Unknown':
+        away_team = await DatabaseOperations.get_e_events_team_info(date_obj, home_team, is_home_unknown=False)
 
+    # Retrieve the e_event_id using the date, home team, and away team
+    e_event_id = await DatabaseOperations.get_e_events_event_id(date_obj, home_team, away_team)
+    
     # Convert the duration to a string
     duration_string = await format_duration(duration)
     
     # Construct the path and file name
-    path = f"../data/{path_date}/"
-    file_name = f"{teams_str} - {filename_date} - [{language}][{duration_string}][{asr}][{dynamic_range}][{acodec}][{quality}][{format_note}]{{fid-{format_id}}}{{yt-{video_id}}}"
+    e_id = ''
+    if e_event_id:
+        e_id = f"{{e-{e_event_id}}}"
+    path = f"./data/{path_date}/"
+    file_name = f"{away_team} at {home_team} - {filename_date} - [{language}][{duration_string}][{asr}][{dynamic_range}][{acodec}][{quality}][{format_note}]{{fid-{format_id}}}{e_id}{{yt-{video_id}}}"
     return path, file_name
 
 def progress_hook(d):
@@ -248,10 +246,10 @@ def progress_hook(d):
         total_bytes = d.get('total_bytes', 0)
         downloaded_bytes = d.get('downloaded_bytes', 0)
         percentage = downloaded_bytes / total_bytes * 100 if total_bytes else 0
-        print(f"Downloaded {downloaded_bytes} of {total_bytes} bytes ({percentage:.2f}%)")
+        logger.info(f"Downloaded {downloaded_bytes} of {total_bytes} bytes ({percentage:.2f}%)")
 
     elif d['status'] == 'finished':
-        print("Download complete.")
+        logger.info("Download complete.")
 
 async def async_postprocess_hook(d):
     try:
@@ -262,7 +260,6 @@ async def async_postprocess_hook(d):
             if not existing_filepath:
                 return
             
-
             # Define the new output path and filename
             new_path, new_filename = await determine_path_and_name(info_dict)
 
@@ -286,17 +283,23 @@ async def async_postprocess_hook(d):
                     # Move the file to the new directory
                     shutil.move(old_file_path, new_file_path)
                     print(f"Moved: {old_file_path} -> {new_file_path}")
+        return True
 
     except Exception as e:
         logger.error(f"{e}")
+        return False  # Indicate failure
 
 def postprocess_hook_wrapper(d):
-    asyncio.create_task(async_postprocess_hook(d))
+    logger.info(f"postprocess_hook_wrapper: start")
+    logger.info(f"d.get('info_dict' {d.get('info_dict', {}).get('title', )}")
+    task = asyncio.create_task(async_postprocess_hook(d))
+    logger.info(f"task: {task}")
+    logger.info(f"postprocess_hook_wrapper: end")
 
 async def download_audio(url):
     try:
         ydl_opts = {
-            'outtmpl': '../data/1aTemp/%(title)s.%(ext)s',  # Specify output directory and file format
+            'outtmpl': './data/1aTemp/%(title)s.%(ext)s',  # Specify output directory and file format
             'format':
                 'bestaudio[ext=m4a][acodec^=mp4a][format_note!*=DRC] \
                 /bestaudio[ext=m4a][acodec^=mp4a] \
@@ -308,7 +311,7 @@ async def download_audio(url):
             #     'preferredcodec': 'wav',
             #     'preferredquality': '192',
             # }],
-            'progress_hooks': [progress_hook],
+            # 'progress_hooks': [progress_hook],
             'postprocessor_hooks': [postprocess_hook_wrapper],
             'writeinfojson': True,  # Save metadata to a JSON file
             'writeautomaticsub': True,
@@ -316,14 +319,18 @@ async def download_audio(url):
             'subtitlesformat': 'ttml',
             'embed_chapters': False,
             'add_metadata': False,
-            'skip_download': False,  # Don't download the video
+            'quiet': True,
+            'skip_download': True,  # Don't download the video
         }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            logger.info(f"ydl.download([url]) : start")
             ydl.download([url])
-
+            logger.info(f"ydl.download([url]) : end")
     except Exception as e:
         print(f"Error: {e}")
+
+    logger.info(f"download_audio : end")
 
 def cmd():
     fire.Fire(Fetcher)

@@ -29,7 +29,7 @@ class EventFetcher:
         self.team_abbreviations = Metadata.team_abbreviations
 
     async def setup(self):
-        self.already_loaded = await DatabaseOperations.fetch_existing_e_events_by_date(self.date_stub)
+        self.already_loaded = await DatabaseOperations.check_if_existing_e_events_by_date(self.date_stub)
 
     async def fetch_data(self):
         response = requests.get(self.url)
@@ -45,15 +45,19 @@ class EventFetcher:
         date = event.get('date')
         short_name = event.get('shortName')
         season_type = event.get('season', {}).get('type')
+        # Extract the home team abbreviation
+        home_team = next((team['team']['abbreviation'] for team in event.get('competitions', [{}])[0].get('competitors', []) if team.get('homeAway') == 'home'), None)
+        # Extract the away team abbreviation
+        away_team = next((team['team']['abbreviation'] for team in event.get('competitions', [{}])[0].get('competitors', []) if team.get('homeAway') == 'away'), None)
+        # Normalize the team abbrevations
+        home_team_normalized, away_team_normalized = Utils.extract_teams(f"{away_team} @ {home_team}")
 
         if event_id and date and short_name and season_type and season_type > 1:
             date_no_z = date.rstrip('Z')
             utc_time = datetime.strptime(date_no_z, '%Y-%m-%dT%H:%M')
             utc_time = pytz.utc.localize(utc_time)
             ny_time = utc_time.astimezone(pytz.timezone('America/New_York'))
-
-            normalized_name, short_name = Utils.extract_teams(short_name)
-            return [event_id, ny_time, season_type, short_name, normalized_name]
+            return [event_id, ny_time, season_type, short_name, home_team, away_team, home_team_normalized, away_team_normalized]
         return None
 
     async def extract_events(self, data):
@@ -65,7 +69,7 @@ class EventFetcher:
         return events_data
 
     async def create_dataframe(self, events_data):
-        return pd.DataFrame(events_data, columns=['event_id', 'date', 'type', 'short_name', 'normalized_name'])
+        return pd.DataFrame(events_data, columns=['event_id', 'date', 'type', 'short_name', 'home_team','away_team', 'home_team_normalized', 'away_team_normalized'])
 
     async def save_to_database(self, dataframe):
         await DatabaseOperations.insert_e_events(dataframe)

@@ -266,11 +266,12 @@ EXECUTE FUNCTION delete_from_yt_videos_to_be_processed();
 """ ESPN related databse objects """
 -- Create the topic_categories table
 CREATE TABLE e_events (
-    event_id VARCHAR(255) PRIMARY KEY,
+    event_id VARCHAR(20) PRIMARY KEY,
     date TIMESTAMP WITH TIME ZONE,
-    type VARCHAR(25),
-    short_name VARCHAR(25),
-    normalized_name VARCHAR(25),
+    type INTEGER,
+    short_name VARCHAR(12),
+    home_team VARCHAR(4),
+    away_team VARCHAR(4),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     deleted_at TIMESTAMP WITH TIME ZONE,
