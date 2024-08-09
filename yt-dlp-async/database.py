@@ -322,7 +322,7 @@ class DatabaseOperations:
             DatabaseOperations.release_db_connection(conn)
 
     @staticmethod
-    async def insert_e_events(df: pd.DataFrame):
+    def insert_e_events(df: pd.DataFrame):
         # Ensure the DataFrame has the required columns
         required_columns = ['event_id', 'date', 'type', 'short_name', 'home_team', 'away_team', 'home_team_normalized','away_team_normalized']
         if not all(column in df.columns for column in required_columns):
@@ -348,7 +348,7 @@ class DatabaseOperations:
             DatabaseOperations.release_db_connection(conn)
 
     @staticmethod
-    async def check_if_existing_e_events_by_date(date_obj: datetime):
+    def check_if_existing_e_events_by_date(date_obj: datetime):
         conn = DatabaseOperations.get_db_connection()
         try:
             query = """
@@ -369,7 +369,7 @@ class DatabaseOperations:
         return (count_result > 0)
     
     @staticmethod
-    async def get_e_events_team_info(date_obj: datetime, opposing_team: str, is_home: bool) -> str:
+    def get_e_events_team_info(date_obj: datetime, opposing_team: str, is_home: bool) -> str:
         """
         Returns the normalized team abbreviation
         """
@@ -399,7 +399,7 @@ class DatabaseOperations:
         return event_id, team
 
     @staticmethod
-    async def get_e_events_event_id(date_obj: datetime, home_team: str, away_team: str) -> Optional[str]:
+    def get_e_events_event_id(date_obj: datetime, home_team: str, away_team: str) -> Optional[str]:
         """
         Returns e_event_id for the event on the specified date between the specified teams.
 
@@ -448,22 +448,8 @@ class DatabaseOperations:
         return event_id
 
     @staticmethod
-    async def get_video_ids_without_files(forbidden_queue: asyncio.Queue) -> List[str]:
+    def get_video_ids_without_files() -> List[str]:
         video_ids = []
-
-        # Retrieve forbidden video IDs from the queue
-        forbidden_video_ids = set()
-        while not forbidden_queue.empty():
-            video_id = await forbidden_queue.get()
-            forbidden_video_ids.add(video_id)
-
-        # If there are forbidden IDs, prepare the WHERE clause
-        forbidden_ids_list = list(forbidden_video_ids)
-        if forbidden_ids_list:
-            placeholders = ','.join(['%s'] * len(forbidden_ids_list))
-            forbidden_ids_str = f"AND m.video_id NOT IN ({placeholders})"
-        else:
-            forbidden_ids_str = ""
 
         conn = DatabaseOperations.get_db_connection()
         try:
@@ -473,7 +459,6 @@ class DatabaseOperations:
                     FROM yt_metadata m
                     LEFT JOIN yt_video_file vf ON m.video_id = vf.video_id
                     WHERE TRUE
-                        {forbidden_ids_str}
                         AND m.video_id IN (
                             SELECT DISTINCT video_id
                             FROM yt_tags
@@ -488,7 +473,7 @@ class DatabaseOperations:
                     AND lower(m.title) NOT ILIKE '%draft%'
                     AND m.duration >= interval '1 hour 15 minutes'
                     AND vf.video_id IS NULL
-                    LIMIT 5;
+                    LIMIT 1000;
                 """
                 # print(f"SQL QUERY: {query}")
                 # Execute the query with parameters
@@ -503,3 +488,25 @@ class DatabaseOperations:
             DatabaseOperations.release_db_connection(conn)
 
         return video_ids
+
+    @staticmethod
+    def insert_video_file(metadata: Dict[str, Any]):
+        # Extract the data to be inserted
+        conn = DatabaseOperations.get_db_connection()
+        try:
+            query = """
+            INSERT INTO yt_video_file (video_id, format_id, file_size, local_path)
+            VALUES (
+            %s, %s, %s, %s
+            ) ON CONFLICT (video_id) DO NOTHING
+            """
+            with conn.cursor() as cursor:
+                # Batch insert records using parameterized queries to prevent SQL injection
+                cursor.execute(query, (
+                    metadata['video_id'],metadata['format_id'],metadata['file_size'],metadata['local_path']
+                ))
+            conn.commit()
+        except Exception as e:
+            print(f"Sql Error when writing file info for video {metadata['video_id']}:\n{e}")
+        finally:
+            DatabaseOperations.release_db_connection(conn)

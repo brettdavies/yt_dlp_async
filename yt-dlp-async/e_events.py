@@ -28,10 +28,10 @@ class EventFetcher:
 
         self.team_abbreviations = Metadata.team_abbreviations
 
-    async def setup(self):
-        self.already_loaded = await DatabaseOperations.check_if_existing_e_events_by_date(self.date_stub)
+    def setup(self):
+        self.already_loaded = DatabaseOperations.check_if_existing_e_events_by_date(self.date_stub)
 
-    async def fetch_data(self):
+    def fetch_data(self):
         response = requests.get(self.url)
         if response.status_code == 200:
             data = response.json()
@@ -40,7 +40,7 @@ class EventFetcher:
             logger.error(f"Failed to retrieve data. Status code: {response.status_code}")
             return None
 
-    async def process_event(self, event):
+    def process_event(self, event):
         event_id = event.get('id')
         date = event.get('date')
         short_name = event.get('shortName')
@@ -60,25 +60,26 @@ class EventFetcher:
             return [event_id, ny_time, season_type, short_name, home_team, away_team, home_team_normalized, away_team_normalized]
         return None
 
-    async def extract_events(self, data):
+    def extract_events(self, data):
         events_data = []
         for event in data.get('events', []):
-            processed_event = await self.process_event(event)
+            processed_event = self.process_event(event)
             if processed_event:
                 events_data.append(processed_event)
         return events_data
 
-    async def create_dataframe(self, events_data):
+    def create_dataframe(self, events_data):
         return pd.DataFrame(events_data, columns=['event_id', 'date', 'type', 'short_name', 'home_team','away_team', 'home_team_normalized', 'away_team_normalized'])
 
-    async def save_to_database(self, dataframe):
-        await DatabaseOperations.insert_e_events(dataframe)
+    def save_to_database(self, dataframe):
+        DatabaseOperations.insert_e_events(dataframe)
 
-    async def run(self):
-        await self.setup()
+    def run(self):
+        self.setup()
+        logger.info(f"starting EventFetcher date_stub: {self.date_stub}")
         if not self.already_loaded:
-            data = await self.fetch_data()
+            data = self.fetch_data()
             if data:
-                events_data = await self.extract_events(data)
-                df = await self.create_dataframe(events_data)
-                await self.save_to_database(df)
+                events_data = self.extract_events(data)
+                df = self.create_dataframe(events_data)
+                self.save_to_database(df)
