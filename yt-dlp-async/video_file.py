@@ -44,10 +44,10 @@ class VideoFileOperations:
             while video_file_queue.qsize() >=1 :
                 video_id = await video_file_queue.get()
                 logger.info(f"Size of video_file_queue after get: {video_file_queue.qsize()}")
-                logger.info(f"Start work on video_id: {video_id}")
+                logger.info(f"[Worker {worker_id}] Starting work on video_id: {video_id}")
 
                 try:
-                    logger.info(f"Worker {worker_id} is processing video {video_id}")
+                    logger.info(f"[Worker {worker_id}] Processing video {video_id}")
                     cmd = ["python3", "-m", "yt-dlp-async.video_download", "--video_id", video_id]
                     process = await asyncio.create_subprocess_exec(
                         *cmd,
@@ -56,10 +56,10 @@ class VideoFileOperations:
                     )
                     stdout, stderr = await process.communicate()
                     if process.returncode != 0:
-                        logger.error(f"Error fetching video {video_id}: {stderr.decode()}")
-                        raise Exception(f"Error fetching video {video_id}: {stderr.decode()}")
-                    logger.info(f"Worker {worker_id} finished processing video {video_id}")
-                    logger.debug(f"Worker {worker_id} subprocess output {stdout}")
+                        logger.error(f"[Worker {worker_id}] Error fetching video {video_id}: {stderr.decode()}")
+                        raise Exception(f"[Worker {worker_id}] Error fetching video {video_id}: {stderr.decode()}")
+                    logger.info(f"[Worker {worker_id}] Finished processing video {video_id}")
+                    logger.debug(f"[Worker {worker_id}] Subprocess output {stdout}")
                 finally:
                     video_file_queue.task_done()
         except Exception as e:
