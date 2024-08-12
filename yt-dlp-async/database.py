@@ -5,7 +5,7 @@ import pandas as pd
 from psycopg2 import pool
 from datetime import datetime
 from dotenv import load_dotenv
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 # from .video_id import Logging
 
 # Load environment variables from .env file
@@ -369,14 +369,16 @@ class DatabaseOperations:
         return (count_result > 0)
     
     @staticmethod
-    def get_e_events_team_info(date_obj: datetime, opposing_team: str, is_home: bool) -> str:
+    def get_e_events_team_info(date_obj: datetime, opposing_team: str, is_home_unknown: bool) -> Tuple[Optional[str], Optional[str]]:
         """
         Returns the normalized team abbreviation
         """
         try:
+            event_id = None
+            team = 'Unknown'
             conn = DatabaseOperations.get_db_connection()
-            team_column = 'home_team_normalized' if is_home else 'away_team_normalized'
-            opposing_column = 'away_team' if is_home else 'home_team'
+            team_column = 'home_team_normalized' if is_home_unknown else 'away_team_normalized'
+            opposing_column = 'away_team' if is_home_unknown else 'home_team'
             query = f"""
             SELECT {team_column}
             FROM e_events
@@ -393,7 +395,7 @@ class DatabaseOperations:
             conn.commit()
         except Exception as e:
             print(f"An error occurred: {e}")
-            event_id, team = 'Unknown'  # Handle exception case
+            return event_id, 'Unknown' # Handle exception case
         finally:
             DatabaseOperations.release_db_connection(conn)
         return event_id, team
@@ -454,26 +456,49 @@ class DatabaseOperations:
         conn = DatabaseOperations.get_db_connection()
         try:
             with conn.cursor() as cursor:
-                query = f"""
-                    SELECT DISTINCT m.video_id
-                    FROM yt_metadata m
-                    LEFT JOIN yt_video_file vf ON m.video_id = vf.video_id
-                    WHERE TRUE
-                        AND m.video_id IN (
-                            SELECT DISTINCT video_id
-                            FROM yt_tags
-                            WHERE lower(tag) ILIKE '%major league%'
-                            OR lower(tag) ILIKE '%mlb%'
-                            OR lower(tag) ILIKE '%baseball%'
-                            OR lower(tag) ILIKE '%alcs%'
-                            OR lower(tag) ILIKE '%nlcs%'
-                            OR lower(tag) ILIKE '%ws%'
-                            OR lower(tag) ILIKE '%world series%'
-                        )
-                    AND lower(m.title) NOT ILIKE '%draft%'
-                    AND m.duration >= interval '1 hour 15 minutes'
-                    AND vf.video_id IS NULL
-                    LIMIT 1000;
+                query = f""" 
+                SELECT m.video_id
+                FROM yt_metadata m
+                LEFT JOIN yt_video_file vf ON m.video_id = vf.video_id
+                WHERE TRUE
+                    AND m.video_id IN (
+                        SELECT DISTINCT video_id
+                        FROM yt_tags
+                        WHERE TRUE
+                            AND (
+                                lower(tag) ILIKE '%major league%'
+                                OR lower(tag) ILIKE '%mlb%'
+                                OR lower(tag) ILIKE '%baseball%'
+                                OR lower(tag) ILIKE '%alcs%'
+                                OR lower(tag) ILIKE '%nlcs%'
+                                OR lower(tag) ILIKE '%world series%'
+                            )
+                            AND lower(tag) NOT ILIKE '%ncaa%'
+                    )
+                AND lower(m.title) NOT ILIKE '%draft%'
+                AND lower(m.title) NOT ILIKE '%ncaa%'
+                AND lower(m.title) NOT ILIKE '%mls%'
+                AND lower(m.title) NOT ILIKE '%nfl%'
+                AND lower(m.title) NOT ILIKE '%nba%'
+                AND lower(m.title) NOT ILIKE '%college%'
+                AND lower(m.title) NOT ILIKE '%cws%'
+                AND lower(m.title) NOT ILIKE '%topgolf%'
+                AND lower(m.title) NOT ILIKE '%futures%'
+                AND lower(m.title) NOT ILIKE '%all star game%'
+                AND lower(m.title) NOT ILIKE '%all-star game%'
+                AND lower(m.title) NOT ILIKE '%wbc%'
+                AND lower(m.title) NOT ILIKE '%world baseball%'
+                AND lower(m.title) NOT ILIKE '%derby%'
+                AND lower(m.title) NOT ILIKE '%softball%'
+                AND lower(m.title) NOT ILIKE '%mlb the show%'
+                AND lower(m.title) NOT ILIKE '%interview%'
+                AND lower(m.title) NOT ILIKE '%makeup%'
+                AND lower(m.title) NOT ILIKE '%ballpark zen%'
+                AND lower(m.title) NOT ILIKE '%check out%'
+                AND lower(m.title) NOT ILIKE '%breaks down%'
+                AND m.duration >= interval '1 hour 15 minutes'
+                AND vf.video_id IS NULL
+                LIMIT 1000;
                 """
                 # print(f"SQL QUERY: {query}")
                 # Execute the query with parameters
