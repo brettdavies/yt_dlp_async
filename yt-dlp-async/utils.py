@@ -54,7 +54,7 @@ class Utils:
                         video_ids.extend(Utils.read_ids_from_file(file))
                         await DatabaseOperations.insert_video_ids(video_ids)
                     else:
-                        print(f"{file_extension.removeprefix(".").upper()} is not an accepted format. Please use TXT or CSV.")
+                        print(f"{file_extension.removeprefix('.').upper()} is not an accepted format. Please use TXT or CSV.")
 
     @staticmethod
     async def prep_metadata_dictionary(item: json) -> Dict[str, Any]:
