@@ -88,11 +88,39 @@ class Fetcher:
 
 def extract_date(text: str):
     # Extract date in DD.MM.YYYY format
-    date_match = re.search(r'(\d{2}\.\d{2}\.\d{4})', text)
+    date_match = re.search(r'(\d{1,2}\.\d{1,2}\.\d{4})', text)
     if date_match:
         date_str = date_match.group(1)
         text = text.replace(date_match.group(0), '').strip()
         return datetime.strptime(date_str, '%d.%m.%Y'), text
+
+    # Extract date in MM.DD.YYYY format
+    date_match = re.search(r'(\d{1,2}\.\d{1,2}\.\d{4})', text)
+    if date_match:
+        date_str = date_match.group(1)
+        text = text.replace(date_match.group(0), '').strip()
+        return datetime.strptime(date_str, '%m.%d.%Y'), text
+
+    # Extract date in MM.DD.YY format
+    date_match = re.search(r'(\d{1,2}\.\d{1,2}\.\d{2})', text)
+    if date_match:
+        date_str = date_match.group(1)
+        text = text.replace(date_match.group(0), '').strip()
+        return datetime.strptime(date_str, '%m.%d.%y'), text
+
+    # Extract date in MM/DD/YY format
+    date_match = re.search(r'(\d{1,2}\/\d{1,2}\/\d{2})', text)
+    if date_match:
+        date_str = date_match.group(1)
+        text = text.replace(date_match.group(0), '').strip()
+        return datetime.strptime(date_str, '%m/%d/%y'), text
+
+    # Extract date in MM-DD-YY format
+    date_match = re.search(r'(\d{1,2}\-\d{1,2}\-\d{2})', text)
+    if date_match:
+        date_str = date_match.group(1)
+        text = text.replace(date_match.group(0), '').strip()
+        return datetime.strptime(date_str, '%m-%d-%y'), text
 
     # Extract date in "Month DD, YYYY" format
     date_match = re.search(r'(\b\w+\s\d{1,2},\s\d{4}\b)', text)
@@ -143,8 +171,8 @@ def determine_path_and_name(info_dict: dict):
 
     # If date is still not found, use 'date_unknown'
     if not date_obj:
-        path_date = 'date_unknown'
-        filename_date = 'date_unknown'
+        path_date = 'unknown_date'
+        filename_date = 'unknown_date'
     else:
         # Convert date to the required format
         path_date = date_obj.strftime('%Y/%m/%d')
@@ -156,6 +184,11 @@ def determine_path_and_name(info_dict: dict):
     # Try to extract teams from title first
     home_team, away_team = Utils.extract_teams(title)
     # logger.info(f"{video_id}home_team, away_team after extract_teams: {away_team} at {home_team}")
+
+    if home_team == 'Unknown' and away_team == 'Unknown':
+        # Try to extract teams from description
+        home_team, away_team = Utils.extract_teams(description)
+        # logger.info(f"{video_id}home_team, away_team after extract_teams: {away_team} at {home_team}")
 
     # If home_team is unknown, try looking it up in e_events using the date and away team
     if home_team == 'Unknown':
@@ -174,19 +207,21 @@ def determine_path_and_name(info_dict: dict):
     e_id = ''
     if e_event_id:
         e_id = f"{{e-{e_event_id}}}"
-    path = f"./data/{path_date}/"
+    path = f"/media/bigdaddy/data/yt-dlp-data/{path_date}/"
+    if home_team == 'Unknown' or away_team == 'Unknown':
+        path = f"/media/bigdaddy/data/yt-dlp-data/unknown_teams/{path_date}/"        
     file_name = f"{away_team} at {home_team} - {filename_date} - [{language}][{duration_string}][{asr}][{dynamic_range}][{acodec}][{quality}][{format_note}]{{fid-{format_id}}}{e_id}{{yt-{video_id}}}"
     return path, file_name
 
 def progress_hook(d):
-    if d['status'] == 'downloading':
-        total_bytes = d.get('total_bytes', 0)
-        downloaded_bytes = d.get('downloaded_bytes', 0)
-        percentage = downloaded_bytes / total_bytes * 100 if total_bytes else 0
-        logger.info(f"{video_name}Downloaded {downloaded_bytes} of {total_bytes} bytes ({percentage:.2f}%)")
-
-    elif d['status'] == 'finished':
-        logger.info("{video_id}Download complete.")
+    # if d['status'] == 'downloading':
+    #     total_bytes = d.get('total_bytes', 0)
+    #     downloaded_bytes = d.get('downloaded_bytes', 0)
+    #     percentage = downloaded_bytes / total_bytes * 100 if total_bytes else 0
+    #     logger.info(f"{video_name}Downloaded {downloaded_bytes} of {total_bytes} bytes ({percentage:.2f}%)")
+    if d['status'] == 'finished':
+        # logger.info(f"{video_name}Download complete.\n{d}")
+        logger.info(f"{video_name}Download complete. {os.path.basename(d.get('filename'))} {d.get('_default_template')}")
 
 def postprocess_hook(d):
     try:
@@ -239,7 +274,7 @@ def postprocess_hook(d):
 def download_audio(url):
     try:
         ydl_opts = {
-            'outtmpl': './data/1aTemp/%(title)s.%(ext)s',  # Specify output directory and file format
+            'outtmpl': '/media/bigdaddy/data/yt-dlp-data/1aTemp/%(title)s.%(ext)s',  # Specify output directory and file format
             'format':
                 'bestaudio[ext=m4a][acodec^=mp4a][format_note!*=DRC] \
                 /bestaudio[ext=m4a][acodec^=mp4a] \
@@ -251,7 +286,7 @@ def download_audio(url):
             #     'preferredcodec': 'wav',
             #     'preferredquality': '192',
             # }],
-            # 'progress_hooks': [progress_hook],
+            'progress_hooks': [progress_hook],
             'postprocessor_hooks': [postprocess_hook],
             'writeinfojson': True,  # Save metadata to a JSON file
             'writeautomaticsub': True,
