@@ -80,6 +80,7 @@ class VideoFileOperations:
 @dataclass(slots=True)
 class Fetcher:
     @staticmethod
+    async def fetch(anything=None, num_workers: int = 10):
         if not isinstance(num_workers, int) or num_workers <= 0:
             logger.error(f"num_workers must be a positive integer. The passed value was: {num_workers}")
             return
