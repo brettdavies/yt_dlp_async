@@ -1,4 +1,17 @@
 class Metadata:
+    """
+    A class that contains a dictionary mapping full team names to their corresponding team abbreviations.
+
+    Attributes:
+    - team_abbreviations (dict): A dictionary mapping full team names to team abbreviations.
+
+    Example:
+    ```
+    metadata = Metadata()
+    print(metadata.team_abbreviations['los angeles angels'])
+    # Output: 'ana'
+    ```
+    """
     team_abbreviations = {
         # full team name: los angeles angels
         'los angeles angels': 'ana',

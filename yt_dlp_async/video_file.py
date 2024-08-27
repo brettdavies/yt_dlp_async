@@ -1,71 +1,61 @@
-from dataclasses import dataclass
-from datetime import datetime
-import os
-import sys
-import shutil
+# Standard Libraries
 import asyncio
+import subprocess
+from typing import List, Any
+from dataclasses import dataclass
+
+# CLI, Logging, Configuration
 import fire
 from loguru import logger
-from typing import List
+
+# First Party Libraries
+from .utils import Utils
 from .database import DatabaseOperations
+from .logger_config import LoggerConfig
 
 # Configure loguru
-# Log file directory and base name
-script_name = "file"
-log_file_dir = "./data/log/"
-log_file_ext = ".log"
-log_file_name = f"video_{script_name}"
-log_debug_file_name = f"video_{script_name}_debug"
-os.makedirs(log_file_dir, exist_ok=True) # Ensure the log directory exists
-log_file_path = os.path.join(log_file_dir, log_file_name + log_file_ext)
-log_debug_file_path = os.path.join(log_file_dir, log_debug_file_name + log_file_ext)
-
-# Check if the log file exists
-if os.path.exists(log_file_path):
-    # Create a new name for the old log file with timestamp
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    new_log_file_path = os.path.join(log_file_dir, f"{log_file_name}_{timestamp}.log")
-    # Rename the old log file
-    shutil.move(log_file_path, new_log_file_path)
-
-# Check if the debug log file exists
-if os.path.exists(log_debug_file_path):
-    # Create a new name for the old log file with timestamp
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    new_debug_log_file_path = os.path.join(log_file_dir, f"{log_debug_file_name}_{timestamp}.log")
-    # Rename the old log file
-    shutil.move(log_debug_file_path, new_debug_log_file_path)
-
-# Remove all existing handlers
-logger.remove()
-
-# Add a logger for the screen (stderr)
-logger.add(sys.stderr, format="{time} - {level} - {message}", level="INFO")
-
-# Add a logger for the log files
-logger.add(log_file_path, format="{time} - {level} - {message}", level="INFO")
-# logger.add(log_debug_file_path, format="{time} - {level} - {message}", level="DEBUG")
+LoggerConfig.setup_logger("file")
 
 # Queues
 video_file_queue = asyncio.Queue()
 
 class VideoFileOperations:
+    """
+    Class that handles video file operations.
+
+    Methods:
+    - run_video_download(worker_id: str) -> None: Asynchronously runs the video download process.
+    """
     @staticmethod
-    async def run_video_download(worker_id: str):
+    async def run_video_download(worker_id: str) -> None:
+        """
+        Asynchronously runs the video download process.
+
+        Args:
+        - worker_id (str): The ID of the worker.
+
+        Raises:
+        - Exception: If there is an error fetching the video.
+
+        Returns:
+        - None
+        """
         try:
-            while video_file_queue.qsize() >=1 :
-                video_id = await video_file_queue.get()
+            while video_file_queue.qsize() >= 1:
+                video_id: str = await video_file_queue.get()
                 logger.info(f"Size of video_file_queue after get: {video_file_queue.qsize()}")
                 logger.info(f"[Worker {worker_id}] Starting work on video_id: {video_id}")
 
                 try:
                     logger.info(f"[Worker {worker_id}] Processing video {video_id}")
-                    cmd = ["python3", "-m", "yt-dlp-async.video_download", "--video_id", f"'{video_id}'"]
-                    process = await asyncio.create_subprocess_exec(
+                    cmd: List[str] = ["python3", "-m", "yt-dlp-async.video_download", "--video_id", f"'{video_id}'"]
+                    process: asyncio.subprocess.Process = await asyncio.create_subprocess_exec(
                         *cmd,
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE
                     )
+                    stdout: bytes
+                    stderr: bytes
                     stdout, stderr = await process.communicate()
                     if process.returncode != 0:
                         logger.error(f"[Worker {worker_id}] Error fetching video {video_id}: {stderr.decode()}")
@@ -79,8 +69,25 @@ class VideoFileOperations:
 
 @dataclass(slots=True)
 class Fetcher:
+    """
+    Class that handles fetching video files.
+
+    Methods:
+    - fetch(anything: Any = None, num_workers: int = 10) -> None: Fetches video files using multiple workers.
+    """
+
     @staticmethod
-    async def fetch(anything=None, num_workers: int = 10):
+    async def fetch(anything: Any = None, num_workers: int = 10) -> None:
+        """
+        Fetches video files using multiple workers.
+
+        Args:
+        - anything (Any): Placeholder argument for compatibility.
+        - num_workers (int): The number of worker tasks to use for fetching.
+
+        Returns:
+        - None
+        """
         if not isinstance(num_workers, int) or num_workers <= 0:
             logger.error(f"num_workers must be a positive integer. The passed value was: {num_workers}")
             return
@@ -89,11 +96,14 @@ class Fetcher:
         for video_id in video_ids:
             await video_file_queue.put(video_id)
         logger.info(f"Size of video_file_queue after put: {video_file_queue.qsize()}")
-        
-        video_file_workers = [asyncio.create_task(VideoFileOperations.run_video_download(worker_id=f"download_file_{i}")) for i in range(num_workers)]
+
+        video_file_workers: List[asyncio.Task] = [asyncio.create_task(VideoFileOperations.run_video_download(worker_id=f"download_file_{i}")) for i in range(num_workers)]
 
         await video_file_queue.join()  # Wait until the queue is fully processed
         await asyncio.gather(*video_file_workers)  # Wait for all workers to finish
 
-def cmd():
+def cmd() -> None:
+    """
+    Command line interface for running the Fetcher.
+    """
     fire.Fire(Fetcher)

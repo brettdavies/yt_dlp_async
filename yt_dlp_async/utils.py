@@ -1,7 +1,11 @@
+# Standard Libraries
 import os
 import re
 import json
 from typing import Any, Dict, List, Tuple
+from dataclasses import dataclass
+
+# First Party Libraries
 from .database import DatabaseOperations
 from .metadata import Metadata
 
@@ -9,7 +13,21 @@ team_abbreviations = Metadata.team_abbreviations
 
 class Utils:
     @staticmethod
-    async def prep_url(id_val: str, id_type: str):
+    async def prep_url(id_val: str, id_type: str) -> str:
+        """
+        Prepare the URL based on the given ID value and ID type.
+
+        Args:
+            id_val (str): The ID value.
+            id_type (str): The type of ID.
+
+        Returns:
+            str: The prepared URL.
+
+        Raises:
+            None
+
+        """
         if id_type == 'user':
             id_val = (f"https://www.youtube.com/@{id_val}/videos")
         elif id_type == 'user_playlist':
@@ -19,9 +37,21 @@ class Utils:
         return id_val
 
     @staticmethod
-    async def read_ids_from_file(file_path):
+    async def read_ids_from_file(file_path) -> List[str]:
+        """
+        Read IDs from a file.
+
+        Args:
+            file_path (str): The path to the file.
+
+        Returns:
+            List[str]: A list of IDs read from the file.
+
+        Raises:
+            FileNotFoundError: If the file does not exist.
+        """
         _, file_extension = os.path.splitext(file_path)
-        ids = []
+        ids: List[str] = []
 
         if file_extension == '.txt':
             with open(file_path, 'r') as file:
@@ -35,7 +65,17 @@ class Utils:
         return ids
 
     @staticmethod
-    async def read_ids_from_cli_argument_insert_db(video_ids: List[str], video_id_files: List[str]):
+    async def read_ids_from_cli_argument_insert_db(video_ids: List[str], video_id_files: List[str]) -> None:
+        """
+        Reads video IDs from command-line arguments and inserts them into the database.
+
+        Args:
+            video_ids (List[str]): A list of video IDs provided as command-line arguments.
+            video_id_files (List[str]): A list of file paths containing video IDs.
+
+        Returns:
+            None
+        """
         if video_ids:
             if isinstance(video_ids, str):
                 video_ids = video_ids.replace(',', ' ').split()
@@ -58,7 +98,13 @@ class Utils:
 
     @staticmethod
     async def prep_metadata_dictionary(item: json) -> Dict[str, Any]:
-        # Extract required fields
+        """
+        Prepares a metadata dictionary from the given JSON item.
+        Args:
+            item (json): The JSON item containing the metadata.
+        Returns:
+            Dict[str, Any]: The prepared metadata dictionary.
+        """
         metadata = {
             'video_id': item.get('id', ''),
             'kind': item.get('kind', ),

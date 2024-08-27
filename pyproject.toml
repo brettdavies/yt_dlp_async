@@ -4,7 +4,7 @@ version = "0.1.0"
 description = ""
 authors = ["John Smith <john@example.com>"]
 readme = "README.md"
-packages = [{ include = "yt-dlp-async" }]
+packages = [{ include = "yt_dlp_async" }]
 
 [tool.poetry.dependencies]
 python = "^3.12"
@@ -19,9 +19,9 @@ aiohttp = "^3.10.0"
 pandas = "^2.2.2"
 
 [tool.poetry.scripts]
-get-video-id = "yt-dlp-async.video_id:cmd"
-get-metadata = "yt-dlp-async.video_metadata:cmd"
-get-audio-file = "yt-dlp-async.video_file:cmd"
+get-video-id = "yt_dlp_async.video_id:cmd"
+get-metadata = "yt_dlp_async.video_metadata:cmd"
+get-audio-file = "yt_dlp_async.video_file:cmd"
 
 [build-system]
 requires = ["poetry-core"]

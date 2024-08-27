@@ -1,49 +1,25 @@
+# Standard Libraries
 import os
-import sys
 import asyncio
-from asyncpg import create_pool
 import aiohttp
-import shutil
-from datetime import datetime
-import fire
+from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
+
+# CLI, Logging, and Configuration
+import fire
 from loguru import logger
-import requests
-import json
 from dotenv import load_dotenv
-from typing import List
+
+# First Party Libraries
 from .utils import Utils
 from .database import DatabaseOperations
+from .logger_config import LoggerConfig
 
 # YT_API_KEY
 YT_API_KEY=""
 
 # Configure loguru
-# Log file directory and base name
-script_name = "metadata"
-log_file_name = f"video_{script_name}.log"
-log_file_dir = "../data/log/"
-log_file_path = os.path.join(log_file_dir, log_file_name)
-
-# Ensure the log directory exists
-os.makedirs(log_file_dir, exist_ok=True)
-
-# Check if the log file exists
-if os.path.exists(log_file_path):
-    # Create a new name for the old log file with timestamp
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    new_log_file_path = os.path.join(log_file_dir, f"video_{script_name}_{timestamp}.log")
-    # Rename the old log file
-    shutil.move(log_file_path, new_log_file_path)
-
-# Remove all existing handlers
-logger.remove()
-
-# Add a logger for the screen (stderr)
-logger.add(sys.stderr, format="{time} - {level} - {message}", level="INFO")
-
-# Add a logger for the log file
-logger.add(log_file_path, format="{time} - {level} - {message}", level="INFO")
+LoggerConfig.setup_logger("metadata")
 
 # Queues for different types of IDs
 metadata_queue = asyncio.Queue()
@@ -60,14 +36,29 @@ active_tasks = {
 
 class Logging:
     @staticmethod
-    def log_state():
-        # Function to log the state of queues and tasks
+    def log_state() -> None:
+        """
+        Function to log the state of queues and tasks.
+        """
         logger.info(f"metadata_queue size: {metadata_queue.qsize()}, active tasks: {active_tasks['video_id']}")
 
 class VideoIdOperations:
-    # Function to fetch video metadata from the YouTube Data API
+    """
+    Class that handles fetching video metadata from the YouTube Data API.
+    """
+
     @staticmethod
-    async def fetch_video_metadata(video_ids: List[str], worker_id: str) -> List[dict]:
+    async def fetch_video_metadata(video_ids: List[str], worker_id: str) -> List[Dict[str, Any]]:
+        """
+        Function to fetch video metadata from the YouTube Data API.
+
+        Args:
+            video_ids (List[str]): List of video IDs to fetch metadata for.
+            worker_id (str): ID of the worker executing the function.
+
+        Returns:
+            List[Dict[str, Any]]: List of dictionaries containing the fetched metadata for each video ID.
+        """
         global YT_API_KEY
         global isQuotaExceeded
         
@@ -77,20 +68,14 @@ class VideoIdOperations:
         if not isQuotaExceeded:
             async with aiohttp.ClientSession() as session:
                 async with session.get(url) as response:
-                    # logger.info(f"[Worker {worker_id}] response:\n{response}")
                     data = await response.json()
-                    # logger.info(f"[Worker {worker_id}] response json:\n{data}")
 
                     if response.status == 200:
                         items = data.get('items', [])
-                        # logger.info(f"[Worker {worker_id}] items json:\n{items}")
                         if items:
                             logger.info(f"[Worker {worker_id}] Successfully fetched metadata for {len(items)} video_ids: {items}")
-                            # logger.info(f"[Worker {worker_id}] data items:\n {items}")
-                            # Collect problematic IDs
                             problematic_ids = set(video_ids) - {item['id'] for item in items}
                             if problematic_ids:
-                                # Handle problematic video IDs after returning the successful data
                                 asyncio.create_task(VideoIdOperations.handle_problematic_video_ids(list(problematic_ids), worker_id))
                             return items
                     elif response.status == 403:
@@ -114,10 +99,17 @@ class VideoIdOperations:
             return []
         
     @staticmethod
-    async def handle_problematic_video_ids(video_ids: List[str], worker_id: str):
+    async def handle_problematic_video_ids(video_ids: List[str], worker_id: str) -> None:
+        """
+        Function to handle problematic video IDs.
+
+        Args:
+            video_ids (List[str]): List of problematic video IDs.
+            worker_id (str): ID of the worker executing the function.
+        """
         problematic_ids = set()
 
-        async def test_chunk(video_ids):
+        async def test_chunk(video_ids: List[str]) -> List[str]:
             try:
                 data = await VideoIdOperations.fetch_video_metadata(video_ids, worker_id)
                 return data
@@ -148,13 +140,26 @@ class VideoIdOperations:
                 except Exception as e:
                     await forbidden_queue.put(video_id)
                     logger.error(f"[Worker {worker_id}] Exception during individual video_id fetch: {e}. Added {video_id} to forbidden_queue. Queue size: {forbidden_queue.qsize()}")
+        logger.info(f"[Worker {worker_id}] Finished handling problematic video IDs: {problematic_ids}")
+
 
 @dataclass(slots=True)
 class Fetcher:
-    shutdown_event = asyncio.Event()
+    """
+    Class that handles fetching video metadata from the YouTube Data API.
+    """
+    shutdown_event: asyncio.Event
 
     @staticmethod
-    async def fetch(video_ids=None, video_id_files=None, num_workers: int = 2):
+    async def fetch(video_ids: Optional[List[str]] = None, video_id_files: Optional[List[str]] = None, num_workers: int = 2) -> None:
+        """
+        Function to fetch video metadata from the YouTube Data API.
+
+        Args:
+            video_ids (List[str], optional): List of video IDs to fetch metadata for. Defaults to None.
+            video_id_files (List[str], optional): List of file paths containing video IDs to fetch metadata for. Defaults to None.
+            num_workers (int, optional): Number of worker tasks to use for fetching metadata. Defaults to 2.
+        """
         global YT_API_KEY
 
         try:
@@ -184,7 +189,13 @@ class Fetcher:
 
         await metadata_queue.join()  # Ensure all metadata tasks are processed
 
-async def worker_retrieve_metadata(worker_id: str):
+async def worker_retrieve_metadata(worker_id: str) -> None:
+    """
+    Worker function that retrieves video metadata from the YouTube Data API.
+
+    Args:
+        worker_id (str): ID of the worker executing the function.
+    """
     global isQuotaExceeded
 
     while not Fetcher.shutdown_event.is_set():
@@ -193,7 +204,6 @@ async def worker_retrieve_metadata(worker_id: str):
 
             if not isQuotaExceeded:
                 video_ids: List[str] = await DatabaseOperations.get_video_ids_without_metadata(forbidden_queue)
-                # logger.info(f"[Worker {worker_id}] video_ids: {video_ids}")
                 if video_ids:
                     metadatas = await VideoIdOperations.fetch_video_metadata(video_ids, worker_id)
                     for metadata in metadatas:
@@ -209,12 +219,16 @@ async def worker_retrieve_metadata(worker_id: str):
         await asyncio.sleep(.250)
     logger.info(f"[Worker {worker_id}] Retrieve metadata worker has finished.")
 
-async def worker_save_metadata(worker_id: str):
+async def worker_save_metadata(worker_id: str) -> None:
+    """
+    Worker function that saves video metadata to the database.
+
+    Args:
+        worker_id (str): ID of the worker executing the function.
+    """
     while True:
         try:
             active_tasks['save'] += 1
-            # logger.info(f"[Worker {worker_id}] active_tasks['save'] {active_tasks['save']}")
-            # logger.info(f"[Worker {worker_id}] metadata_queue.qsize() {metadata_queue.qsize()}")
             if metadata_queue.qsize() > 0:
                 meta_dict = await asyncio.wait_for(metadata_queue.get(), timeout=1)
                 logger.info(f"[Worker {worker_id}] Size of metadata_queue after get: {metadata_queue.qsize()}")
@@ -226,10 +240,6 @@ async def worker_save_metadata(worker_id: str):
             logger.error(f"[Worker {worker_id}] Error saving metadata: {e}")
         finally:
             active_tasks['save'] -= 1
-            # logger.info(f"[Worker {worker_id}] active_tasks['save'] {active_tasks['save']}")
-
-            # logger.info(f"[Worker {worker_id}] Fetcher.shutdown_event.is_set() {Fetcher.shutdown_event.is_set()}")
-            # logger.info(f"[Worker {worker_id}] metadata_queue.empty() {metadata_queue.empty()}")
             if Fetcher.shutdown_event.is_set() and metadata_queue.empty():
                 break  # Exit only when the queue is empty and shutdown_event is set
 
@@ -237,5 +247,8 @@ async def worker_save_metadata(worker_id: str):
 
     logger.info(f"[Worker {worker_id}] Save metadata worker has finished.")
 
-def cmd():
+def cmd() -> None:
+    """
+    Command line interface for running the Fetcher.
+    """
     fire.Fire(Fetcher)

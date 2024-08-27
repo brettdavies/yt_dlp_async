@@ -1,42 +1,23 @@
-import os
-import sys
+# Standard Libraries
 import asyncio
-from asyncpg import create_pool
-import shutil
-from datetime import datetime
-import fire
+import subprocess
+from typing import List, Optional
 from dataclasses import dataclass
+
+# CLI and Logging
+import fire
 from loguru import logger
-from .utils import Utils
-from .database import DatabaseOperations
+
+# Third Party Libraries
 import yt_dlp # The yt_dlp library is not directly used in this file. It is called by a subprocess. The library needs to be installed in the python environment. Referenced here for poetry dependency checks purposes.
 
+# First Party Libraries
+from .utils import Utils
+from .database import DatabaseOperations
+from .logger_config import LoggerConfig
+
 # Configure loguru
-# Log file directory and base name
-script_name = "id"
-log_file_name = f"video_{script_name}.log"
-log_file_dir = "../data/log/"
-log_file_path = os.path.join(log_file_dir, log_file_name)
-
-# Ensure the log directory exists
-os.makedirs(log_file_dir, exist_ok=True)
-
-# Check if the log file exists
-if os.path.exists(log_file_path):
-    # Create a new name for the old log file with timestamp
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    new_log_file_path = os.path.join(log_file_dir, f"video_{script_name}_{timestamp}.log")
-    # Rename the old log file
-    shutil.move(log_file_path, new_log_file_path)
-
-# Remove all existing handlers
-logger.remove()
-
-# Add a logger for the screen (stderr)
-logger.add(sys.stderr, format="{time} - {level} - {message}", level="INFO")
-
-# Add a logger for the log file
-logger.add(log_file_path, format="{time} - {level} - {message}", level="INFO")
+LoggerConfig.setup_logger("id")
 
 # Queues for different types of IDs
 user_id_queue = asyncio.Queue()
@@ -53,23 +34,33 @@ active_tasks = {
 class Logging:
     @staticmethod
     def log_state():
-        # Function to log the state of queues and tasks
+        """
+        Function to log the state of queues and tasks.
+        """
         logger.info(f"user_id_queue size: {user_id_queue.qsize()}, active tasks: {active_tasks['user_id']}")
         logger.info(f"playlist_id_queue size: {playlist_id_queue.qsize()}, active tasks: {active_tasks['playlist_id']}")
         logger.info(f"video_id_queue size: {video_id_queue.qsize()}, active tasks: {active_tasks['video_id']}")
 
 class VideoIdOperations:
-    # This command will print out the IDs of all videos uploaded to the specified channel.
-    # yt-dlp --flat-playlist --print id <channel_url>
-
-    # This command will print out the IDs of all videos added to a specified playlist
-    # yt-dlp --flat-playlist --print id <playlist_url>
+    """
+    Class for performing operations related to video IDs.
+    Methods:
+    - _run_yt_dlp_command(cmd: List[str]) -> List[str]: Runs a yt-dlp command and returns the output as a list of strings.
+    - fetch_video_ids_from_url(url: str) -> List[str]: Fetches the video IDs from the given URL.
+    - fetch_playlist_ids_from_user_id(user_url: str) -> List[str]: Fetches the playlist IDs from the given user URL.
+    """
     @staticmethod
-    async def fetch_video_ids_from_url(url: str):
-        video_ids = []
+    async def _run_yt_dlp_command(cmd: List[str]) -> List[str]:
+        """
+        Runs a yt-dlp command and returns the output as a list of strings.
+
+        Args:
+            cmd (List[str]): The yt-dlp command to run.
+
+        Returns:
+            List[str]: The output of the command.
+        """
         try:
-            # logger.info(f"start fetch_video_ids_from_url_sub {url}")
-            cmd = ["yt-dlp", "--flat-playlist", "--print", "id", url]
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
@@ -77,43 +68,71 @@ class VideoIdOperations:
             )
             stdout, stderr = await process.communicate()
             if process.returncode == 0:
-                video_ids.extend(stdout.decode().splitlines())
-                # logger.info(f"end fetch_video_ids_from_url_sub {url}")
+                return stdout.decode().splitlines()
             else:
-                raise Exception(f"Error fetching video_ids from {url}: {stderr.decode()}")
+                raise subprocess.CalledProcessError(process.returncode, cmd, output=stdout, stderr=stderr)
+        except subprocess.CalledProcessError as e:
+            logger.error(f"CalledProcessError: {e.stderr.decode()}")
         except Exception as e:
-            logger.error(f"Error: {e}")
-        # logger.info(f"return video_ids {video_ids}")
-        return video_ids
+            logger.error(f"Unexpected error: {e}")
+        return []
 
-    # This command will print out the IDs of all playlists associated with the specified channel.
-    # yt-dlp --flat-playlist --print "%(id)s" <channel_url>
     @staticmethod
-    async def fetch_playlist_ids_from_user_id(user_url: str):
-        playlist_ids = []
-        try:
-            # logger.info(f"start fetch_playlist_ids_from_user_id_sub {user_url}")
-            cmd = ["yt-dlp", "--flat-playlist", "--print", "%(id)s", user_url]
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            stdout, stderr = await process.communicate()
-            if process.returncode == 0:
-                playlist_ids.extend(stdout.decode().splitlines())
-                # logger.info(f"end fetch_playlist_ids_from_user_id_sub {user_url}")
-            else:
-                logger.error(f"Error fetching playlist_ids from {user_url}")
-        except Exception as e:
-            logger.error(f"Error: {e}")
-        return playlist_ids
+    async def fetch_video_ids_from_url(url: str) -> List[str]:
+        """
+        Fetches the video IDs from the given URL.
+
+        Args:
+            url (str): The URL of the channel or playlist.
+
+        Returns:
+            List[str]: A list of video IDs.
+        """
+        cmd = ["yt-dlp", "--flat-playlist", "--print", "id", url]
+        return await VideoIdOperations._run_yt_dlp_command(cmd)
+
+    @staticmethod
+    async def fetch_playlist_ids_from_user_id(user_url: str) -> List[str]:
+        """
+        Fetches the playlist IDs from the given user URL.
+
+        Args:
+            user_url (str): The URL of the user's channel.
+
+        Returns:
+            List[str]: A list of playlist IDs.
+        """
+        cmd = ["yt-dlp", "--flat-playlist", "--print", "%(id)s", user_url]
+        return await VideoIdOperations._run_yt_dlp_command(cmd)
 
 @dataclass(slots=True)
 class Fetcher:
-    async def fetch(video_ids=None, video_id_files=None, playlist_ids=None, playlist_id_files=None, user_ids=None, user_id_files=None, num_workers: int = 5):
-        # Ensure num_workers is an integer
-        if not isinstance(num_workers, int) or num_workers <=0 :
+    @staticmethod
+    async def fetch(
+        video_ids: Optional[List[str]] = None,
+        video_id_files: Optional[List[str]] = None,
+        playlist_ids: Optional[List[str]] = None,
+        playlist_id_files: Optional[List[str]] = None,
+        user_ids: Optional[List[str]] = None,
+        user_id_files: Optional[List[str]] = None,
+        num_workers: int = 5
+    ) -> None:
+        """
+        Fetches video IDs, playlist IDs, and user IDs from various sources.
+
+        Args:
+            video_ids (Optional[List[str]]): A list of video IDs.
+            video_id_files (Optional[List[str]]): A list of file paths containing video IDs.
+            playlist_ids (Optional[List[str]]): A list of playlist IDs.
+            playlist_id_files (Optional[List[str]]): A list of file paths containing playlist IDs.
+            user_ids (Optional[List[str]]): A list of user IDs.
+            user_id_files (Optional[List[str]]): A list of file paths containing user IDs.
+            num_workers (int): The number of worker tasks to create.
+
+        Returns:
+            None
+        """
+        if not isinstance(num_workers, int) or num_workers <= 0:
             logger.error(f"num_workers must be a positive integer. The passed value was: {num_workers}")
             return
 
@@ -122,41 +141,15 @@ class Fetcher:
         playlist_id_workers = [asyncio.create_task(worker_playlist_ids()) for _ in range(num_workers)]
         video_id_workers = [asyncio.create_task(worker_video_ids()) for _ in range(num_workers)]
 
-        # Add playlist_ids and user_ids to their respective queues
-        if user_ids:
-            if isinstance(user_ids, str):
-                user_ids = user_ids.replace(',', ' ').split()
-                for user_id in user_ids:
-                    await user_id_queue.put(user_id)
+        # Add IDs to their respective queues
+        await Fetcher._add_ids_to_queue(user_ids, user_id_files, user_id_queue, Utils.read_ids_from_file)
+        await Fetcher._add_ids_to_queue(playlist_ids, playlist_id_files, playlist_id_queue, Utils.read_ids_from_file)
 
-        if playlist_ids:
-            if isinstance(playlist_ids, str):
-                playlist_ids = playlist_ids.replace(',', ' ').split()
-                for playlist_id in playlist_ids:
-                    await playlist_id_queue.put(playlist_id)
-
-        # Process any files and add playlist_ids and user_ids to their respective queues
-        if user_id_files:
-            if isinstance(user_id_files, str):
-                user_id_files = user_id_files.replace(',', ' ').split()
-                for file in user_id_files:
-                    user_ids.extend(Utils.read_ids_from_file(file))
-                    for user_id in user_ids:
-                        await user_id_queue.put(user_id)
-
-        if playlist_id_files:
-            if isinstance(playlist_id_files, str):
-                playlist_id_files = playlist_id_files.replace(',', ' ').split()
-                for file in playlist_id_files:
-                    playlist_ids.extend(Utils.read_ids_from_file(file))
-                    for playlist_id in playlist_ids:
-                        await playlist_id_queue.put(playlist_id)
-        
         try:
             if video_ids or video_id_files:
                 Utils.read_ids_from_cli_argument_insert_db(video_ids, video_id_files)
-
         except Exception as e:
+            logger.error(f"Error processing video IDs: {e}")
             return
 
         # Wait for all workers to finish
@@ -169,10 +162,39 @@ class Fetcher:
             video_id_queue.join()
         )
 
+    @staticmethod
+    async def _add_ids_to_queue(ids: Optional[List[str]], id_files: Optional[List[str]], queue: asyncio.Queue, read_func) -> None:
+        """
+        Adds IDs from lists and files to the specified queue.
+
+        Args:
+            ids (Optional[List[str]]): A list of IDs.
+            id_files (Optional[List[str]]): A list of file paths containing IDs.
+            queue (asyncio.Queue): The queue to add IDs to.
+            read_func (Callable): Function to read IDs from files.
+
+        Returns:
+            None
+        """
+        if ids:
+            if isinstance(ids, str):
+                ids = ids.replace(',', ' ').split()
+            for id in ids:
+                await queue.put(id)
+
+        if id_files:
+            if isinstance(id_files, str):
+                id_files = id_files.replace(',', ' ').split()
+            for file in id_files:
+                ids_from_file = read_func(file)
+                for id in ids_from_file:
+                    await queue.put(id)
+
 async def worker_user_ids():
+    """
+    Worker task for processing user IDs.
+    """
     while True:
-        # Logging.log_state()
-        # Exit if the user_id queue is empty and there are no running playlist_id tasks
         if user_id_queue.empty() and active_tasks['user_id'] == 0:
             break
 
@@ -187,24 +209,18 @@ async def worker_user_ids():
             logger.info(f"Size of user_id_queue: {user_id_queue.qsize()}")
 
             user_url = await Utils.prep_url(user_id, 'user')
-            # logger.info(f"worker_user_ids user_url after prep_url {user_url}")
             user_playlist_url = await Utils.prep_url(user_id, 'user_playlist')
-            # logger.info(f"worker_user_ids user_playlist_url after prep_url {user_playlist_url}")
             
             # Process user videos and playlists
             user_playlist_ids = await VideoIdOperations.fetch_playlist_ids_from_user_id(user_playlist_url)
-            # logger.info(f"user_playlist_ids after fetch_playlist_ids_from_user_id {user_playlist_ids}")
             if user_playlist_ids:
                 for playlist_id in user_playlist_ids:
                     await playlist_id_queue.put(playlist_id)
-                # logger.info(f"worker_user_ids playlist_id_queue after playlist_id_queue.put {playlist_id_queue.qsize()}")
 
             user_video_ids = await VideoIdOperations.fetch_video_ids_from_url(user_url)
-            # logger.info(f"worker_user_ids user_video_ids after fetch_video_ids_from_url {len(user_video_id)} {user_video_id}")
             if user_video_ids:
                 for user_video_id in user_video_ids:
                     await video_id_queue.put(user_video_id)
-                # logger.info(f"worker_user_ids video_id_queue after video_id_queue.put {video_id_queue.qsize()}")
 
             logger.info(f"End work on user_id: {user_id}")
 
@@ -213,15 +229,16 @@ async def worker_user_ids():
 
         finally:
             user_id_queue.task_done()
-            active_tasks['user_id'] -= 1  # Decrement the counter when a task is finished
+            active_tasks['user_id'] -= 1
             logger.info(f"ENDING worker_user_ids {user_id}")
 
     logger.info(f"User ID worker has finished.")
 
 async def worker_playlist_ids():
+    """
+    Worker task for processing playlist IDs.
+    """
     while True:
-        # Logging.log_state()
-        # Exit if the user_id and playlist_id queues are empty and there are no running user_id or playlist_id tasks
         if user_id_queue.empty() and playlist_id_queue.empty() and (active_tasks['user_id'] + active_tasks['playlist_id']) == 0:
             break
 
@@ -236,11 +253,9 @@ async def worker_playlist_ids():
             logger.info(f"Size of playlist_id_queue: {playlist_id_queue.qsize()}")
         
             playlist_url = await Utils.prep_url(playlist_id, 'playlist')
-            # logger.info(f"playlist_url after prep_url {playlist_url}")
 
             # Process playlist videos
             playlist_video_ids = await VideoIdOperations.fetch_video_ids_from_url(playlist_url)
-            # logger.info(f"playlist_video_ids after fetch_video_ids_from_url {len(playlist_video_ids)} {playlist_video_ids}")
 
             if playlist_video_ids:
                 for playlist_video_id in playlist_video_ids:
@@ -253,15 +268,16 @@ async def worker_playlist_ids():
 
         finally:
             playlist_id_queue.task_done()
-            active_tasks['playlist_id'] -= 1  # Decrement the counter when a task is finished
+            active_tasks['playlist_id'] -= 1
             logger.info(f"ENDING worker_playlist_ids {playlist_id}")
 
     logger.info(f"Playlist ID worker has finished.")
 
 async def worker_video_ids():
+    """
+    Worker task for processing video IDs.
+    """
     while True:
-        # Logging.log_state()
-        # Exit if all queues are empty and there are no running tasks
         if user_id_queue.empty() and playlist_id_queue.empty() and video_id_queue.empty() and (active_tasks['user_id'] + active_tasks['playlist_id'] + active_tasks['video_id']) == 0:
             break
 
@@ -273,7 +289,7 @@ async def worker_video_ids():
             video_ids_batch = []
 
             # Collect video IDs from the queue
-            active_tasks['video_id'] += 1  # Increment the counter when a task is started
+            active_tasks['video_id'] += 1
             while not video_id_queue.empty():
                 video_ids_batch.append(await video_id_queue.get())
                 video_id_queue.task_done()
@@ -288,10 +304,13 @@ async def worker_video_ids():
             logger.error(f"Error processing {len(video_ids_batch)} videos {video_ids_batch}: {e}")
 
         finally:
-            active_tasks['video_id'] -= 1  # Decrement the counter when a task is finished
+            active_tasks['video_id'] -= 1
             logger.info(f"ENDING process_video_id")
 
     logger.info(f"Video ID worker has finished.")
 
-def cmd():
+def cmd() -> None:
+    """
+    Command line interface for running the Fetcher.
+    """
     fire.Fire(Fetcher)

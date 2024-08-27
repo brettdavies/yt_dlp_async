@@ -1,12 +1,22 @@
+# Standard Libraries
 import os
-import asyncio
 import datetime
-import pandas as pd
+import asyncio
 from psycopg2 import pool
 from datetime import datetime
-from dotenv import load_dotenv
 from typing import Any, Dict, List, Optional, Tuple
-# from .video_id import Logging
+from dataclasses import dataclass
+
+# Configuration
+from dotenv import load_dotenv
+
+# Third Party Libraries
+import pandas as pd
+
+# First Party Libraries
+from .utils import Utils
+from .database import DatabaseOperations
+from .logger_config import LoggerConfig
 
 # Load environment variables from .env file
 load_dotenv()
@@ -16,18 +26,48 @@ DATABASE_URL = os.environ.get('DATABASE_URL')
 connection_pool = pool.SimpleConnectionPool(1, 10, DATABASE_URL)
 
 class DatabaseOperations:
+    """
+    A class that provides database operations for video processing.
+    Methods:
+    - get_db_connection(): Returns a database connection from the connection pool.
+    - release_db_connection(conn): Releases a database connection back to the connection pool.
+    - get_count_videos_to_be_processed() -> Optional[int]: Retrieves the count of videos to be processed from the database.
+    - get_video_ids_without_metadata(forbidden_queue: asyncio.Queue) -> List[str]: Retrieves a list of video IDs without metadata from the database.
+    - insert_video_ids(video_ids: List[str]): Insert video IDs into the 'videos_to_be_processed' table in the database.
+    - insert_video_ids_bulk(id_file_path: str): Insert video IDs in bulk from a file into the 'videos_to_be_processed' table.
+    - insert_update_video_metadata(metadata: Dict[str, Any]): Inserts or updates video metadata in the database.
+    """    
+    pool: pool.SimpleConnectionPool
+
     @staticmethod
     def get_db_connection():
-        # Get a connection from the pool
+        """
+        Returns a database connection from the connection pool.
+        """
         return connection_pool.getconn()
 
     @staticmethod
     def release_db_connection(conn):
-        # Release the connection back to the pool
+        """
+        Releases a database connection back to the connection pool.
+
+        Args:
+            conn: The database connection to be released.
+
+        Returns:
+            None
+        """
         connection_pool.putconn(conn)
 
     @staticmethod
-    async def get_count_videos_to_be_processed():
+    async def get_count_videos_to_be_processed() -> Optional[int]:
+        """
+        Retrieves the count of videos to be processed from the database.
+
+        Returns:
+            int: The count of videos to be processed.
+            None: If an error occurs during the retrieval process.
+        """
         conn = DatabaseOperations.get_db_connection()
         try:
             query = """
@@ -48,7 +88,19 @@ class DatabaseOperations:
 
     @staticmethod
     async def get_video_ids_without_metadata(forbidden_queue: asyncio.Queue) -> List[str]:
-        video_ids = []
+        """
+        Retrieves a list of video IDs without metadata from the database.
+
+        Args:
+            forbidden_queue (asyncio.Queue): A queue containing forbidden video IDs.
+
+        Returns:
+            List[str]: A list of video IDs without metadata.
+
+        Raises:
+            Exception: If an error occurs during the database operation.
+        """
+        video_ids: List[str] = []
 
         # Retrieve forbidden video IDs from the queue
         forbidden_video_ids = set()
@@ -90,6 +142,14 @@ class DatabaseOperations:
 
     @staticmethod
     async def insert_video_ids(video_ids: List[str]):
+        """
+        Insert video IDs into the 'videos_to_be_processed' table in the database.
+
+        Args:
+            video_ids (List[str]): A list of video IDs to be inserted.
+        Returns:
+            None
+        """
         conn = DatabaseOperations.get_db_connection()
         try:
             query = """
@@ -108,6 +168,15 @@ class DatabaseOperations:
 
     @staticmethod
     async def insert_video_ids_bulk(id_file_path: str):
+        """
+        Insert video IDs in bulk from a file into the 'videos_to_be_processed' table.
+
+        Parameters:
+        - id_file_path (str): The file path of the file containing the video IDs.
+
+        Returns:
+        None
+        """
         conn = DatabaseOperations.get_db_connection()
         try:
             # Create a cursor object
@@ -154,6 +223,15 @@ class DatabaseOperations:
 
     @staticmethod
     async def insert_update_video_metadata(metadata: Dict[str, Any]):
+        """
+        Inserts or updates video metadata in the database.
+
+        Args:
+            metadata (Dict[str, Any]): A dictionary containing the video metadata.
+
+        Returns:
+            None
+        """
         conn = DatabaseOperations.get_db_connection()
         try:
             # Create a cursor object
@@ -323,6 +401,18 @@ class DatabaseOperations:
 
     @staticmethod
     def insert_e_events(df: pd.DataFrame):
+        """
+        Insert events into the 'e_events' table in the database.
+
+        Args:
+            df (pd.DataFrame): The DataFrame containing the events data.
+
+        Raises:
+            ValueError: If the DataFrame does not contain all the required columns.
+
+        Returns:
+            None
+        """
         # Ensure the DataFrame has the required columns
         required_columns = ['event_id', 'date', 'type', 'short_name', 'home_team', 'away_team', 'home_team_normalized','away_team_normalized']
         if not all(column in df.columns for column in required_columns):
@@ -349,6 +439,14 @@ class DatabaseOperations:
 
     @staticmethod
     def check_if_existing_e_events_by_date(date_obj: datetime):
+        """
+        Check if there are existing e_events with the given date.
+
+        Args:
+            date_obj (datetime): The date to check for existing e_events.
+        Returns:
+            bool: True if there are existing e_events with the given date, False otherwise.
+        """
         conn = DatabaseOperations.get_db_connection()
         try:
             query = """
@@ -372,6 +470,14 @@ class DatabaseOperations:
     def get_e_events_team_info(date_obj: datetime, opposing_team: str, is_home_unknown: bool) -> Tuple[Optional[str], Optional[str]]:
         """
         Returns the normalized team abbreviation
+
+        Args:
+            date_obj (datetime): The date object representing the date of the event.
+            opposing_team (str): The name of the opposing team.
+            is_home_unknown (bool): A flag indicating whether the home team is unknown.
+
+        Returns:
+            Tuple[Optional[str], Optional[str]]: A tuple containing the event ID (optional) and the normalized team abbreviation (optional).
         """
         try:
             event_id = None
@@ -405,7 +511,15 @@ class DatabaseOperations:
         """
         Returns e_event_id for the event on the specified date between the specified teams.
 
-        Date is required and must be in the America/New_York tz. At least one of the home_team or away_team must be known. Lookup will fail if both are 'Unknown'.
+        At least one of the home_team or away_team must be known. Lookup will fail if both are 'Unknown'.
+
+        Args:
+            date_obj (datetime): The date of the event in America/New_York timezone.
+            home_team (str): The name of the home team. Set to 'Unknown' if unknown.
+            away_team (str): The name of the away team. Set to 'Unknown' if unknown.
+
+        Returns:
+            Optional[str]: The e_event_id for the event, or None if not found.
         """
         if home_team == 'Unknown' and away_team == 'Unknown':
             return None
@@ -451,6 +565,16 @@ class DatabaseOperations:
 
     @staticmethod
     def get_video_ids_without_files() -> List[str]:
+        """
+        Retrieves a list of video IDs that meet the specified criteria:
+        - The video ID is not associated with any video file.
+        - The video ID is associated with tags related to major league baseball (MLB).
+        - The video title does not contain certain keywords.
+        - The video duration is at least 1 hour and 15 minutes.
+
+        Returns:
+        - A list of video IDs that meet the specified criteria.
+        """
         video_ids = []
 
         conn = DatabaseOperations.get_db_connection()
@@ -516,6 +640,23 @@ class DatabaseOperations:
 
     @staticmethod
     def insert_video_file(metadata: Dict[str, Any]):
+        """
+        Insert video file metadata into the database.
+
+        Args:
+            metadata (Dict[str, Any]): A dictionary containing the metadata of the video file.
+                The dictionary should have the following keys:
+                - 'video_id': The ID of the video.
+                - 'format_id': The ID of the video format.
+                - 'file_size': The size of the video file.
+                - 'local_path': The local path of the video file.
+
+        Returns:
+            None
+
+        Raises:
+            Exception: If there is an error while inserting the metadata into the database.
+        """
         # Extract the data to be inserted
         conn = DatabaseOperations.get_db_connection()
         try:
