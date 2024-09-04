@@ -1,9 +1,11 @@
+from typing import Dict
+
 class Metadata:
     """
     A class that contains a dictionary mapping full team names to their corresponding team abbreviations.
 
     Attributes:
-    - team_abbreviations (dict): A dictionary mapping full team names to team abbreviations.
+    - team_abbreviations (Dict): A dictionary mapping full team names to team abbreviations.
 
     Example:
     ```
@@ -12,7 +14,7 @@ class Metadata:
     # Output: 'ana'
     ```
     """
-    team_abbreviations = {
+    team_abbreviations: Dict = {
         # full team name: los angeles angels
         'los angeles angels': 'ana',
         'los angeles angels of anaheim': 'ana',
