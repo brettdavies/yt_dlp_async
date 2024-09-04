@@ -18,13 +18,15 @@ import yt_dlp
 # First Party Libraries
 from .utils import Utils
 from .database import DatabaseOperations
-from .logger_config import LoggerConfig
 from .e_events import EventFetcher
 
-# Global video_name
-video_name: str = None
+# Constants
+BASE_URL = "https://www.youtube.com/watch?v="
+OUTPUT_DIR = os.getenv('YT_DLP_OUTPUT_DIR', '/media/bigdaddy/data/yt-dlp-data/1aTemp/')
+SUBTITLES_LANGS = ['en', 'en-orig']
+SUBTITLES_FORMAT = 'ttml'
 
-@dataclass(slots=True)
+@dataclass
 class Fetcher:
     """
     This module contains the `Fetcher` class which is responsible for fetching and downloading videos from YouTube.
@@ -39,29 +41,23 @@ class Fetcher:
         extract_date(text): Extracts the date from the given text.
         format_duration(duration): Formats the duration of the video.
     """
-    def __init__(self, video_id: str):
-        self.video_id = video_id
-        self.video_name = None
+    video_id: str
+    video_name: Optional[str] = None
 
-    def fetch(self):
+    async def fetch(self):
         """
         Fetches the video by downloading its audio from the given video URL.
 
         Returns:
             None
         """
-        # Configure loguru
-        log_file_name = f"video_download_{self.video_id}"
-        LoggerConfig.setup_logger(log_file_name)
 
-        self.video_name = "[Video " + self.video_id + "] "
-        # URL
+        self.video_name = f"[Video {self.video_id}] "
         base_url: str = "https://www.youtube.com/watch?v="
         video_url = f"{base_url}{self.video_id}"
+        await self.download_audio(video_url)
 
-        self.download_audio(video_url)
-
-    def download_audio(self, url):
+    async def download_audio(self, url: str):
         """
         Downloads the audio from the given URL.
 
@@ -74,31 +70,34 @@ class Fetcher:
         Returns:
             None
         """
-        try:
-            ydl_opts = {
-                'outtmpl': '/media/bigdaddy/data/yt-dlp-data/1aTemp/%(title)s.%(ext)s',  # Specify output directory and file format
-                'format':
-                    'bestaudio[ext=m4a][acodec^=mp4a][format_note!*=DRC] \
-                    /bestaudio[ext=m4a][acodec^=mp4a] \
-                    /bestaudio[acodec^=mp4a][format_note!*=DRC] \
-                    /bestaudio[format_note!*=DRC]/bestaudio',
-                'format_sort': ['abr'],
-                'progress_hooks': [self.progress_hook],
-                'postprocessor_hooks': [self.postprocess_hook],
-                'writeinfojson': True,  # Save metadata to a JSON file
-                'writeautomaticsub': True,
-                'subtitleslangs': ['en','en-orig'],
-                'subtitlesformat': 'ttml',
-                'embed_chapters': False,
-                'add_metadata': False,
-                'quiet': False,
-                'skip_download': False,  # Don't download the video
-            }
 
+        ydl_opts = {
+            'outtmpl': os.path.join(OUTPUT_DIR, '%(title)s.%(ext)s'),  # Specify output directory and file format
+            'format':
+                'bestaudio[ext=m4a][acodec^=mp4a][format_note!*=DRC] \
+                /bestaudio[ext=m4a][acodec^=mp4a] \
+                /bestaudio[acodec^=mp4a][format_note!*=DRC] \
+                /bestaudio[format_note!*=DRC]/bestaudio',
+            'format_sort': ['abr'],
+            'progress_hooks': [self.progress_hook],
+            'postprocessor_hooks': [self.postprocess_hook],
+            'writeinfojson': True,  # Save metadata to a JSON file
+            'writeautomaticsub': True,
+            'subtitleslangs': SUBTITLES_LANGS,
+            'subtitlesformat': SUBTITLES_FORMAT,
+            'embed_chapters': False,
+            'add_metadata': False,
+            'quiet': False,
+            'skip_download': False,  # Don't download the video
+        }
+
+        try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url])
+        except yt_dlp.DownloadError as e:
+            logger.error(f"{self.video_name}Download error: {e}")
         except Exception as e:
-            logger.error(f"{self.video_name}Error: {e}")
+            logger.error(f"{self.video_name}Unexpected error: {e}")
 
     def progress_hook(self, d):
         """
@@ -114,8 +113,11 @@ class Fetcher:
         - This function is called for each progress update during the download process.
         - It logs a message when the download is finished, including the video name, the filename, and the default template.
         """
+        if d['status'] == 'downloading':
+            logger.info(f"{self.video_name}Downloading: {d['_percent_str']} at {d['_speed_str']} ETA {d['_eta_str']}")
         if d['status'] == 'finished':
             logger.info(f"{self.video_name}Download complete. {os.path.basename(d.get('filename'))} {d.get('_default_template')}")
+            logger.info(f"{self.video_name}Download finished, now post-processing...")
 
     def postprocess_hook(self, d):
         """
@@ -164,13 +166,17 @@ class Fetcher:
                                 'local_path': new_file_path
                             }
                             DatabaseOperations.insert_video_file(video_file_info)
+
+            if d['status'] == 'finished':
+                logger.info(f"{self.video_name}Post-processing finished")
+
             return True
 
         except Exception as e:
-            logger.error(f"{self.video_name}{e}")
+            logger.error(f"{self.video_name}Post-processing error\n{e}")
             return False  # Indicate failure
 
-    def determine_path_and_name(self, info_dict: dict):
+    def determine_path_and_name(self, info_dict: dict) -> tuple:
         """
         Determines the path and file name for a video based on the given information.
         Args:
@@ -193,11 +199,11 @@ class Fetcher:
         duration:int = info_dict.get('duration', 0)
 
         # Try to extract date from title first
-        date_obj, title = self.extract_date(title)
+        date_obj, title = Utils.extract_date(title)
 
         # If date is not found in the title, try the description
         if not date_obj:
-            date_obj, description = self.extract_date(description)
+            date_obj, description = Utils.extract_date(description)
 
         # If date is still not found, use 'date_unknown'
         if not date_obj:
@@ -209,7 +215,7 @@ class Fetcher:
             filename_date = date_obj.strftime('%Y.%m.%d')
 
             # Run the EventFetcher
-            self.run_event_fetcher(path_date)
+            EventFetcher.run(path_date)
 
         # Try to extract teams from title first
         home_team, away_team = Utils.extract_teams(title)
@@ -239,88 +245,21 @@ class Fetcher:
         if home_team == 'Unknown' or away_team == 'Unknown':
             path = f"/media/bigdaddy/data/yt-dlp-data/unknown_teams/{path_date}/"        
         file_name = f"{away_team} at {home_team} - {filename_date} - [{language}][{duration_string}][{asr}][{dynamic_range}][{acodec}][{quality}][{format_note}]{{fid-{format_id}}}{e_id}{{yt-{video_id}}}"
+
         return path, file_name
 
-    def extract_date(self, text: str):
+    def format_duration(self, duration: str) -> str:
         """
-        Extracts a date from the given text in various formats.
+        Formats the duration of the video.
 
         Args:
-            text (str): The text from which to extract the date.
+            duration (str): The duration string.
 
         Returns:
-            tuple: A tuple containing the extracted date as a datetime object and the remaining text.
+            str: The formatted duration.
         """
-        # Extract date in DD.MM.YYYY format
-        date_match = re.search(r'(\d{1,2}\.\d{1,2}\.\d{4})', text)
-        if date_match:
-            date_str = date_match.group(1)
-            text = text.replace(date_match.group(0), '').strip()
-            return datetime.strptime(date_str, '%d.%m.%Y'), text
-
-        # Extract date in MM.DD.YYYY format
-        date_match = re.search(r'(\d{1,2}\.\d{1,2}\.\d{4})', text)
-        if date_match:
-            date_str = date_match.group(1)
-            text = text.replace(date_match.group(0), '').strip()
-            return datetime.strptime(date_str, '%m.%d.%Y'), text
-
-        # Extract date in MM.DD.YY format
-        date_match = re.search(r'(\d{1,2}\.\d{1,2}\.\d{2})', text)
-        if date_match:
-            date_str = date_match.group(1)
-            text = text.replace(date_match.group(0), '').strip()
-            return datetime.strptime(date_str, '%m.%d.%y'), text
-
-        # Extract date in MM/DD/YY format
-        date_match = re.search(r'(\d{1,2}\/\d{1,2}\/\d{2})', text)
-        if date_match:
-            date_str = date_match.group(1)
-            text = text.replace(date_match.group(0), '').strip()
-            return datetime.strptime(date_str, '%m/%d/%y'), text
-
-        # Extract date in MM-DD-YY format
-        date_match = re.search(r'(\d{1,2}\-\d{1,2}\-\d{2})', text)
-        if date_match:
-            date_str = date_match.group(1)
-            text = text.replace(date_match.group(0), '').strip()
-            return datetime.strptime(date_str, '%m-%d-%y'), text
-
-        # Extract date in "Month DD, YYYY" format
-        date_match = re.search(r'(\b\w+\s\d{1,2},\s\d{4}\b)', text)
-        if date_match:
-            date_str = date_match.group(1)
-            text = text.replace(date_match.group(0), '').strip()
-            return datetime.strptime(date_str, '%B %d, %Y'), text
-
-        return None, text
-
-    def format_duration(self, duration:int) -> str:
-        """
-        Formats the given duration in seconds into a string representation in the format HnnMnnSnn.
-        Parameters:
-        - duration (int): The duration in seconds to be formatted.
-        Returns:
-        - str: The formatted duration string in the format HnnMnnSnn.
-        Raises:
-        - Exception: If an error occurs during the formatting process.
-        """
-        try:
-            total_seconds = int(duration)
-            h, remainder = divmod(total_seconds, 3600)
-            m, s = divmod(remainder, 60)
-        
-            # Format as HnnMnnSnn
-            return f"H{h:02}M{m:02}S{s:02}" # formatted_time
-        except Exception as e:
-            logger.error(f"{e}")
-
-def cmd() -> None:
-    """
-    Command line interface for running the Fetcher.
-    """
-    fire.Fire(Fetcher)
-
-# Run the main function
-if __name__ == "__main__":
-    fire.Fire(Fetcher.fetch)
+        match = re.match(r'PT(\d+H)?(\d+M)?(\d+S)?', duration)
+        if not match:
+            return duration
+        hours, minutes, seconds = match.groups()
+        return f"{hours or '0H'} {minutes or '0M'} {seconds or '0S'}".strip()

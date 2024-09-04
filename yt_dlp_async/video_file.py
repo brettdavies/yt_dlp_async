@@ -1,4 +1,5 @@
 # Standard Libraries
+import os
 import asyncio
 import subprocess
 from typing import List, Any
@@ -9,25 +10,28 @@ import fire
 from loguru import logger
 
 # First Party Libraries
-from .utils import Utils
 from .database import DatabaseOperations
 from .logger_config import LoggerConfig
 
 # Configure loguru
-LoggerConfig.setup_logger("file")
+LOGGER_NAME = "file"
+LoggerConfig.setup_logger(LOGGER_NAME)
 
-# Queues
-video_file_queue = asyncio.Queue()
+class QueueManager:
+    def __init__(self):
+        self.video_file_queue = asyncio.Queue()
 
 class VideoFileOperations:
-    """
-    Class that handles video file operations.
+    def __init__(self, queue_manager: QueueManager):
+        """
+        Initializes the Fetcher with a QueueManager instance.
 
-    Methods:
-    - run_video_download(worker_id: str) -> None: Asynchronously runs the video download process.
-    """
-    @staticmethod
-    async def run_video_download(worker_id: str) -> None:
+        Args:
+            queue_manager (QueueManager): An instance of QueueManager to manage queues.
+        """
+        self.queue_manager = queue_manager
+
+    async def run_video_download(self, worker_id: str) -> None:
         """
         Asynchronously runs the video download process.
 
@@ -41,9 +45,9 @@ class VideoFileOperations:
         - None
         """
         try:
-            while video_file_queue.qsize() >= 1:
-                video_id: str = await video_file_queue.get()
-                logger.info(f"Size of video_file_queue after get: {video_file_queue.qsize()}")
+            while not self.queue_manager.video_file_queue.empty():
+                video_id: str = await self.queue_manager.video_file_queue.get()
+                logger.info(f"Size of video_file_queue after get: {self.queue_manager.video_file_queue.qsize()}")
                 logger.info(f"[Worker {worker_id}] Starting work on video_id: {video_id}")
 
                 try:
@@ -54,30 +58,68 @@ class VideoFileOperations:
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE
                     )
-                    stdout: bytes
-                    stderr: bytes
                     stdout, stderr = await process.communicate()
                     if process.returncode != 0:
                         logger.error(f"[Worker {worker_id}] Error fetching video {video_id}: {stderr.decode()}")
                         raise Exception(f"[Worker {worker_id}] Error fetching video {video_id}: {stderr.decode()}")
                     logger.info(f"[Worker {worker_id}] Finished processing video {video_id}")
-                    # logger.debug(f"[Worker {worker_id}] Subprocess output {stdout}")
+                    logger.debug(f"[Worker {worker_id}] Subprocess output {stdout.decode()}")
                 finally:
-                    video_file_queue.task_done()
+                    self.queue_manager.video_file_queue.task_done()
+
+        except subprocess.CalledProcessError as e:
+            logger.error(f"[Worker {worker_id}] Subprocess error: {e}")
+        except asyncio.QueueEmpty:
+            logger.error(f"[Worker {worker_id}] Queue is empty")
         except Exception as e:
-            logger.error(f"Error in worker {worker_id}: {e}")
+            logger.error(f"[Worker {worker_id}] Unexpected error: {e}")
+
+    @staticmethod
+    async def identify_video_files(existing_videos_dir):
+        try:
+            for root, _, files in os.walk(existing_videos_dir):
+                for file in files:
+                    if file.endswith('.m4a'):
+                        video_file = {}
+                        full_path = os.path.join(root, file)
+                        relative_path = full_path.replace(existing_videos_dir, '')
+                        file_name_parts = file.split('{')
+                        video_id = None
+                        a_format_id = None
+                        for part in file_name_parts:
+                            if part.startswith('yt-'):
+                                video_id = part.split('yt-')[1].split('}')[0]
+                            if part.startswith('fid-'):
+                                a_format_id = part.split('fid-')[1].split('}')[0]
+                            if video_id and a_format_id:
+                                break
+
+                        video_file[video_id] = {
+                                'local_path': relative_path,
+                                'file_size': os.path.getsize(full_path),
+                                'a_format_id': a_format_id
+                            }
+                        logger.info(f"Found video_id {video_id} with file size {video_file[video_id]['file_size']} bytes and audio_format_id {video_file[video_id]['a_format_id']} at \"{video_file[video_id]['local_path']}\".") # Wait until the queue is fully processed
+                        DatabaseOperations.update_video_file(video_file)
+
+        except Exception as e:
+            logger.error(f"{e}")
 
 @dataclass(slots=True)
 class Fetcher:
-    """
-    Class that handles fetching video files.
+    queue_manager: QueueManager
 
-    Methods:
-    - fetch(anything: Any = None, num_workers: int = 10) -> None: Fetches video files using multiple workers.
-    """
+    def __init__(self):
+        """
+        Initializes the Fetcher with a QueueManager instance.
 
-    @staticmethod
-    async def fetch(anything: Any = None, num_workers: int = 10) -> None:
+        Args:
+            queue_manager (QueueManager): An instance of QueueManager to manage queues.
+        """
+        # Instantiate QueueManager
+        self.queue_manager = QueueManager()
+
+    async def fetch(self, existing_videos_dir: str = None, num_workers: int = 10) -> None:
         """
         Fetches video files using multiple workers.
 
@@ -88,22 +130,33 @@ class Fetcher:
         Returns:
         - None
         """
-        if not isinstance(num_workers, int) or num_workers <= 0:
-            logger.error(f"num_workers must be a positive integer. The passed value was: {num_workers}")
-            return
+        try:
+            if not isinstance(num_workers, int) or num_workers <= 0:
+                logger.error(f"num_workers must be a positive integer. The passed value was: {num_workers}")
+                raise ValueError(f"num_workers must be a positive integer. The passed value was: {num_workers}")
 
-        video_ids: List[str] = DatabaseOperations.get_video_ids_without_files()
-        for video_id in video_ids:
-            await video_file_queue.put(video_id)
-        logger.info(f"Size of video_file_queue after put: {video_file_queue.qsize()}")
+            if existing_videos_dir:
+                if not os.path.isdir(existing_videos_dir):
+                    logger.error(f"existing_videos_dir must be a directory. The passed value was: {existing_videos_dir}")
+                    return
+                logger.info(f"Processing existing videos in directory: {existing_videos_dir}")
+                await VideoFileOperations.identify_video_files(existing_videos_dir)
+            
+            video_ids: List[str] = DatabaseOperations.get_video_ids_without_files()
+            for video_id in video_ids:
+                await self.queue_manager.video_file_queue.put(video_id)
+            logger.info(f"Size of video_file_queue after put: {self.queue_manager.video_file_queue.qsize()}")
 
-        video_file_workers: List[asyncio.Task] = [asyncio.create_task(VideoFileOperations.run_video_download(worker_id=f"download_file_{i}")) for i in range(num_workers)]
+            video_file_workers: List[asyncio.Task] = [asyncio.create_task(VideoFileOperations(self.queue_manager).run_video_download(worker_id=f"download_file_{i}")) for i in range(num_workers)]
 
-        await video_file_queue.join()  # Wait until the queue is fully processed
-        await asyncio.gather(*video_file_workers)  # Wait for all workers to finish
+            await self.queue_manager.video_file_queue.join()  # Wait until the queue is fully processed
+            await asyncio.gather(*video_file_workers)  # Wait for all workers to finish
+
+        finally:
+            DatabaseOperations.close_connection_pool() # Close the connection pool
 
 def cmd() -> None:
     """
     Command line interface for running the Fetcher.
     """
-    fire.Fire(Fetcher)
+    fire.Fire(Fetcher())

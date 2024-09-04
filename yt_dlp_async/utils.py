@@ -2,14 +2,16 @@
 import os
 import re
 import json
+from datetime import datetime
 from typing import Any, Dict, List, Tuple
 from dataclasses import dataclass
+
+# Logging
+from loguru import logger
 
 # First Party Libraries
 from .database import DatabaseOperations
 from .metadata import Metadata
-
-team_abbreviations = Metadata.team_abbreviations
 
 class Utils:
     @staticmethod
@@ -37,7 +39,7 @@ class Utils:
         return id_val
 
     @staticmethod
-    async def read_ids_from_file(file_path) -> List[str]:
+    async def read_ids_from_file(file_path: str) -> List[str]:
         """
         Read IDs from a file.
 
@@ -53,14 +55,21 @@ class Utils:
         _, file_extension = os.path.splitext(file_path)
         ids: List[str] = []
 
-        if file_extension == '.txt':
-            with open(file_path, 'r') as file:
-                ids = [line.strip() for line in file if line.strip()]
-        elif file_extension == '.csv':
-            import csv
-            with open(file_path, 'r') as file:
-                reader = csv.reader(file)
-                ids = [row[0].strip() for row in reader if row and row[0].strip()]
+        try:
+            if file_extension == '.txt':
+                with open(file_path, 'r') as file:
+                    ids = [line.strip() for line in file if line.strip()]
+            elif file_extension == '.csv':
+                import csv
+                with open(file_path, 'r') as file:
+                    reader = csv.reader(file)
+                    ids = [row[0].strip() for row in reader if row and row[0].strip()]
+        except FileNotFoundError as e:
+            logger.error(f"File not found: {file_path}")
+            raise
+        except Exception as e:
+            logger.error(f"Error reading file {file_path}: {e}")
+            raise
 
         return ids
 
@@ -79,22 +88,22 @@ class Utils:
         if video_ids:
             if isinstance(video_ids, str):
                 video_ids = video_ids.replace(',', ' ').split()
-                await DatabaseOperations.insert_video_ids(video_ids)
+            await DatabaseOperations.insert_video_ids(video_ids)
 
         if video_id_files:
             if isinstance(video_id_files, str):
                 video_id_files = video_id_files.replace(',', ' ').split()
-                for file in video_id_files:
-                    _, file_extension = os.path.splitext(file)
-                    if file_extension == '.txt':
-                        print(f"Attempting to insert videos from {file}")
-                        await DatabaseOperations.insert_video_ids_bulk(file)
-                        print(f"Currrent count of videos to be processed: {await DatabaseOperations.get_count_videos_to_be_processed()}")
-                    elif file_extension == '.csv':
-                        video_ids.extend(Utils.read_ids_from_file(file))
-                        await DatabaseOperations.insert_video_ids(video_ids)
-                    else:
-                        print(f"{file_extension.removeprefix('.').upper()} is not an accepted format. Please use TXT or CSV.")
+            for file in video_id_files:
+                _, file_extension = os.path.splitext(file)
+                if file_extension == '.txt':
+                    logger.info(f"Attempting to insert videos from {file}")
+                    await DatabaseOperations.insert_video_ids_bulk(file)
+                    logger.info(f"Current count of videos to be processed: {await DatabaseOperations.get_count_videos_to_be_processed()}")
+                elif file_extension == '.csv':
+                    video_ids.extend(await Utils.read_ids_from_file(file))
+                    await DatabaseOperations.insert_video_ids(video_ids)
+                else:
+                    logger.error(f"{file_extension.removeprefix('.').upper()} is not an accepted format. Please use TXT or CSV.")
 
     @staticmethod
     async def prep_metadata_dictionary(item: json) -> Dict[str, Any]:
@@ -155,18 +164,81 @@ class Utils:
             'localized_title': item.get('snippet', {}).get('localized', {}).get('title', ),
             'localized_description': item.get('snippet', {}).get('localized', {}).get('description', ),
             'topic_category': item.get('topicDetails', {}).get('topicCategories', ''),
-            # 'rating_type': '',  # Placeholder, as contentRating object structure is unknown
-            # 'rating_value': '',  # Placeholder, as contentRating object structure is unknown
-            # 'recording_date': datetime.datetime.min,  # Placeholder, as recordingDetails object structure is unknown
-            # 'recording_location': '',  # Placeholder, as recordingDetails object structure is unknown
-            # 'transcript_text': '',  # Placeholder, as transcripts are not part of the provided schema
-            # 'is_auto_generated': '',  # Placeholder, as transcripts are not part of the provided schema
         }
     
         return metadata
 
     @staticmethod
-    def extract_teams(text) -> Tuple[str, str]:
+    def extract_date(text: str):
+        # Extract date in DD.MM.YYYY format
+        date_match = re.search(r'(\d{1,2}\.\d{1,2}\.\d{4})', text)
+        if date_match:
+            date_str = date_match.group(1)
+            text = text.replace(date_match.group(0), '').strip()
+            return datetime.strptime(date_str, '%d.%m.%Y'), text
+
+        # Extract date in MM.DD.YYYY format
+        date_match = re.search(r'(\d{1,2}\.\d{1,2}\.\d{4})', text)
+        if date_match:
+            date_str = date_match.group(1)
+            text = text.replace(date_match.group(0), '').strip()
+            return datetime.strptime(date_str, '%m.%d.%Y'), text
+
+        # Extract date in MM.DD.YY format
+        date_match = re.search(r'(\d{1,2}\.\d{1,2}\.\d{2})', text)
+        if date_match:
+            date_str = date_match.group(1)
+            text = text.replace(date_match.group(0), '').strip()
+            return datetime.strptime(date_str, '%m.%d.%y'), text
+
+        # Extract date in MM/DD/YY format
+        date_match = re.search(r'(\d{1,2}\/\d{1,2}\/\d{2})', text)
+        if date_match:
+            date_str = date_match.group(1)
+            text = text.replace(date_match.group(0), '').strip()
+            return datetime.strptime(date_str, '%m/%d/%y'), text
+
+        # Extract date in MM-DD-YY format
+        date_match = re.search(r'(\d{1,2}\-\d{1,2}\-\d{2})', text)
+        if date_match:
+            date_str = date_match.group(1)
+            text = text.replace(date_match.group(0), '').strip()
+            return datetime.strptime(date_str, '%m-%d-%y'), text
+
+        # Extract date in "Month DD, YYYY" format
+        date_match = re.search(r'(\b\w+\s\d{1,2},\s\d{4}\b)', text)
+        if date_match:
+            date_str = date_match.group(1)
+            text = text.replace(date_match.group(0), '').strip()
+            return datetime.strptime(date_str, '%B %d, %Y'), text
+
+        return None, text
+
+    @staticmethod
+    async def normalize_date_stub(date_stub: str) -> str:
+        """
+        Normalize the date stub to the format '%Y%m%d'.
+        Args:
+            date_stub (str): The date stub in various formats.
+        Returns:
+            str: The normalized date stub.
+        Raises:
+            ValueError: If the date_stub is not in a valid format.
+        """
+        try:
+            if '-' in date_stub:
+                date_obj = datetime.strptime(date_stub, '%Y-%m-%d')
+            elif '/' in date_stub:
+                date_obj = datetime.strptime(date_stub, '%Y/%m/%d')
+            else:
+                date_obj = datetime.strptime(date_stub, '%Y%m%d')
+            return date_obj.strftime('%Y%m%d')
+        except ValueError as e:
+            logger.error(f"normalize_date_stub() ValueError: {e}")
+            raise
+
+    @staticmethod
+    async def extract_teams(text) -> Tuple[str, str]:
         """
         Returns normalized home_team and away_team as defined in Metadata.team_abbreviations.
 
@@ -185,6 +257,8 @@ class Utils:
                 away_team_candidates = set()
                 home_team_candidates = set()
                 
+                team_abbreviations = Metadata.team_abbreviations
+
                 # Function to find team candidates within a part of the text
                 def find_team_candidates(part, candidates_set):
                     for team in team_abbreviations:
@@ -197,10 +271,6 @@ class Utils:
                 # Extract team names from parts[1] (RHS of delimiter, home team)
                 find_team_candidates(parts[1], home_team_candidates)
                 
-                # print(f"Delimiter: |{delimiter}|")
-                # print(f"Away team candidates (LHS): {away_team_candidates}")
-                # print(f"Home team candidates (RHS): {home_team_candidates}")
-
                 # Handle different candidate scenarios
                 if len(away_team_candidates) == 1 and len(home_team_candidates) == 1:
                     # Both sides have exactly one candidate team
