@@ -1,8 +1,8 @@
 [tool.poetry]
-name = "yt-dlp-async"
+name = "yt_dlp_async"
 version = "0.1.0"
-description = ""
-authors = ["John Smith <john@example.com>"]
+description = "Asynchronous, multi-worker tool for fetching and processing YouTube audio data using yt-dlp, designed to aid scalable and efficient data collection and analysis for academic research projects."
+authors = ["Brett <brettdavies@users.noreply.github.com>"]
 readme = "README.md"
 packages = [{ include = "yt_dlp_async" }]
 
@@ -17,6 +17,7 @@ python-dotenv = "^1.0.1"
 aiomultiprocess = "^0.9.1"
 aiohttp = "^3.10.0"
 pandas = "^2.2.2"
+sshtunnel = "^0.4.0"
 
 [tool.poetry.scripts]
 get-video-id = "yt_dlp_async.video_id:cmd"
