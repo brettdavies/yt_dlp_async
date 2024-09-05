@@ -153,7 +153,6 @@ class DatabaseOperations:
                         ORDER BY RANDOM() 
                         LIMIT 50
                     """
-                    # Execute the query with parameters
                     cursor.execute(query)
                     result = cursor.fetchall()  # Fetch all results
                     video_ids = [row[0] for row in result]  # Extract video IDs from the results
@@ -173,7 +172,7 @@ class DatabaseOperations:
                 WHERE video_id = %s
                 """
                 with conn.cursor() as cursor:
-                    # Batch insert video IDs
+                    # Batch update records
                     cursor.executemany(query, [(vid,) for vid in video_ids])
                 conn.commit()
             except Exception as e:
@@ -196,6 +195,7 @@ class DatabaseOperations:
                     VALUES (%s)
                     ON CONFLICT (video_id) DO NOTHING;
                     """
+                    # Batch insert records
                     cursor.executemany(insert_query, [(video_id,) for video_id in video_ids_batch])
                     conn.commit()
                     logger.info(f"Inserted {len(video_ids_batch)} video IDs into the database.")
@@ -397,6 +397,30 @@ class DatabaseOperations:
                 conn.rollback()
 
     @staticmethod
+    def get_dates_no_event_metadata():
+        with DatabaseOperations.get_db_connection() as conn:
+            try:
+                query = """
+                SELECT *
+                FROM (
+                    SELECT DISTINCT yt_metadata.event_date_local_time
+                    FROM yt_metadata
+                    LEFT JOIN e_events ON yt_metadata.event_date_local_time = e_events.date::DATE
+                    WHERE e_events.date IS NULL
+                ) AS distinct_dates
+                ORDER BY RANDOM()
+                """
+                with conn.cursor() as cursor:
+                    cursor.execute(query)
+                    result = cursor.fetchall()  # Fetch all results
+                    dates_no_event_metadata = [row[0] for row in result]  # Extract video IDs from the results
+                conn.commit()
+            except psycopg2.Error as e:
+                logger.error(f"SQL Error when retrieving the video ids without metadata:\n{e}")
+                return False
+        return dates_no_event_metadata
+    
+    @staticmethod
     async def save_events(df: pd.DataFrame):
         """
         Insert events into the 'e_events' table in the database.
@@ -417,6 +441,7 @@ class DatabaseOperations:
 
         # Extract the data to be inserted
         records = df[required_columns].values.tolist()
+
         with DatabaseOperations.get_db_connection() as conn:
             try:
                 query = """
@@ -426,15 +451,17 @@ class DatabaseOperations:
                 ) ON CONFLICT (event_id) DO NOTHING
                 """
                 with conn.cursor() as cursor:
-                    # Batch insert records using parameterized queries to prevent SQL injection
+                    # Batch insert records
                     cursor.executemany(query, records)
                 conn.commit()
             except psycopg2.Error as e:
                 logger.error(f"SQL Error when writing events:\n{e}")
+                logger.debug(f"SQL cursor: {cursor.query}")
+                logger.debug(f"Failed records: {records}")
                 conn.rollback()
 
     @staticmethod
-    def check_if_existing_e_events_by_date(date_obj: datetime):
+    async def check_if_existing_e_events_by_date(date_obj: datetime) -> bool:
         """
         Check if there are existing e_events with the given date.
 
@@ -448,7 +475,7 @@ class DatabaseOperations:
                 query = """
                 SELECT COUNT(1)
                 FROM e_events
-                WHERE date::date = %s::date
+                WHERE (date AT TIME ZONE 'America/New_York')::date = %s::date
                 """
                 with conn.cursor() as cursor:
                     cursor.execute(query, (date_obj,))
@@ -461,7 +488,7 @@ class DatabaseOperations:
             return (count_result > 0)
     
     @staticmethod
-    async def get_e_events_team_info(date_obj: datetime, opposing_team: str, is_home_unknown: bool) -> Tuple[Optional[str], Optional[str]]:
+    def get_e_events_team_info(date_obj: datetime, opposing_team: str, is_home_unknown: bool) -> Tuple[Optional[str], Optional[str]]:
         """
         Returns the normalized team abbreviation
 
@@ -482,7 +509,7 @@ class DatabaseOperations:
                 query = f"""
                 SELECT {team_column}
                 FROM e_events
-                WHERE date::date = %s::date
+                WHERE (date AT TIME ZONE 'America/New_York')::date = %s::date
                     AND {opposing_column} = %s
                 """
                 with conn.cursor() as cursor:
@@ -499,7 +526,7 @@ class DatabaseOperations:
         return event_id, team
 
     @staticmethod
-    async def get_event_id(date_obj: datetime, home_team: str, away_team: str) -> Optional[str]:
+    def get_event_id(date_obj: datetime, home_team: str, away_team: str) -> Optional[str]:
         """
         Retrieve the event ID based on the date and team information.
 
@@ -546,24 +573,24 @@ class DatabaseOperations:
                 return None
 
     @staticmethod
-    async def update_video_file(video_file: Dict[str, Dict[str, str]]):
+    def update_audio_file(video_file: Dict[str, Dict[str, str]]) -> bool:
         """
-        Update or Insert video file metadata into the database.
+        Update or Insert audio file metadata into the database.
 
         Args:
-            video_files (Dict[str, Dict[str, str]]): A dictionary containing the metadata of the video file.
+            video_files (Dict[str, Dict[str, str]]): A dictionary containing the metadata of the audio file.
                 The dictionary should have the following structure:
                 {
                     'video_id': {
-                        'format_id': 'format_id_value',
+                        'a_format_id': 'audio_format_id_value',
                         'file_size': 'file_size_value',
                         'local_path': 'local_path_value'
                     },
                     ...
                 }
 
-        Raises:
-            Exception: If there is an error while inserting the metadata into the database.
+        Returns:
+            bool: True if the update/insert is successful, False otherwise.
         """
         with DatabaseOperations.get_db_connection() as conn:
             try:
@@ -577,16 +604,40 @@ class DatabaseOperations:
                 local_path = EXCLUDED.local_path
                 """
                 with conn.cursor() as cursor:
-                    # Batch insert/update records using parameterized queries to prevent SQL injection
+                    logger.debug("[Video] [DB] Starting to process video_file dictionary.")
                     for video_id, metadata in video_file.items():
-                        a_format_id = metadata['a_format_id']
-                        file_size = metadata['file_size']
-                        local_path = metadata['local_path']
+                        logger.debug(f"[Video {video_id}] [DB] Processing video_id: {video_id} with metadata: {metadata}")
+
+                        # Ensure metadata is a dictionary
+                        if not isinstance(metadata, dict):
+                            logger.error(f"[Video {video_id}] [DB] Metadata for video_id {video_id} is not a dictionary: {metadata}")
+                            continue
+
+                        # Access dictionary values using string keys
+                        a_format_id = metadata.get('a_format_id')
+                        file_size = metadata.get('file_size')
+                        local_path = metadata.get('local_path')
+
+                        # Ensure all required keys are present
+                        if a_format_id is None or file_size is None or local_path is None:
+                            logger.error(f"[Video {video_id}] [DB] Missing required metadata for video_id {video_id}: {metadata}")
+                            continue
+
+                        logger.debug(f"[Video {video_id}] [DB] Executing query with values: {video_id}, {a_format_id}, {file_size}, {local_path}")
                         cursor.execute(query, (video_id, a_format_id, file_size, local_path))
                 conn.commit()
-            except Exception as e:        
-                print(f"An error occurred: {e}")
+                logger.info("[Video] [DB] Successfully inserted/updated audio file metadata.")
+                return True
+
+            except psycopg2.Error as e:
+                logger.error(f"[Video {video_id}] [DB] SQL Error occurred while inserting audio file metadata: {e}")
                 conn.rollback()
+                return False
+
+            except Exception as e:
+                logger.error(f"[Video {video_id}] [DB] Unexpected error occurred while inserting audio file metadata: {e}")
+                conn.rollback()
+                return False
 
     @staticmethod
     async def get_video_ids_without_files() -> List[str]:
@@ -647,45 +698,12 @@ class DatabaseOperations:
                     AND lower(m.title) NOT ILIKE '%breaks down%'
                     AND m.duration >= interval '1 hour 15 minutes'
                     AND vf.video_id IS NULL
-                    LIMIT 1000;
                     """
                     cursor.execute(query)
                     result = cursor.fetchall()  # Fetch all results
                     video_ids = [row[0] for row in result]  # Extract video IDs from the results
                 conn.commit()
-            except Exception as e:
-                print(f"An error occurred: {e}")
-                return False  # Handle exception case
-        return video_ids
-
-    @staticmethod
-    async def insert_video_file(metadata: Dict[str, Any]):
-        """
-        Insert video file metadata into the database.
-
-        Args:
-            metadata (Dict[str, Any]): A dictionary containing the metadata of the video file.
-                The dictionary should have the following keys:
-                - 'video_id': The ID of the video.
-                - 'format_id': The ID of the video format.
-                - 'file_size': The size of the video file.
-                - 'local_path': The local path of the video file.
-
-        Raises:
-            Exception: If there is an error while inserting the metadata into the database.
-        """
-        with DatabaseOperations.get_db_connection() as conn:
-            try:
-                query = """
-                INSERT INTO yt_video_file (video_id, format_id, file_size, local_path)
-                VALUES (%s, %s, %s, %s)
-                ON CONFLICT (video_id) DO NOTHING
-                """
-                with conn.cursor() as cursor:
-                    cursor.execute(query, (
-                        metadata['video_id'], metadata['format_id'], metadata['file_size'], metadata['local_path']
-                    ))
-                conn.commit()
             except psycopg2.Error as e:
                 logger.error(f"An error occurred while inserting video file metadata: {e}")
-                conn.rollback()
+                return False  # Handle exception case
+        return video_ids
