@@ -169,50 +169,118 @@ class Utils:
         return metadata
 
     @staticmethod
-    def extract_date(text: str):
-        # Extract date in DD.MM.YYYY format
-        date_match = re.search(r'(\d{1,2}\.\d{1,2}\.\d{4})', text)
-        if date_match:
-            date_str = date_match.group(1)
-            text = text.replace(date_match.group(0), '').strip()
-            return datetime.strptime(date_str, '%d.%m.%Y'), text
-
+    def extract_date(text: str) -> datetime:
         # Extract date in MM.DD.YYYY format
         date_match = re.search(r'(\d{1,2}\.\d{1,2}\.\d{4})', text)
         if date_match:
             date_str = date_match.group(1)
-            text = text.replace(date_match.group(0), '').strip()
-            return datetime.strptime(date_str, '%m.%d.%Y'), text
+            try:
+                logger.debug(f"Date format MM.DD.YYYY matched. {date_str}")
+                return datetime.strptime(date_str, '%m.%d.%Y')
+            except ValueError:
+                logger.debug(f"Date format MM.DD.YYYY matched but date not valid. Moving on. {date_str}")
+                pass
+
+        # Extract date in DD.MM.YYYY format
+        date_match = re.search(r'(\d{1,2}\.\d{1,2}\.\d{4})', text)
+        if date_match:
+            date_str = date_match.group(1)
+            try:
+                logger.debug(f"Date format DD.MM.YYYY matched. {date_str}")
+                return datetime.strptime(date_str, '%d.%m.%Y')
+            except ValueError:
+                logger.debug(f"Date format DD.MM.YYYY matched but date not valid. Moving on. {date_str}")
+                pass
 
         # Extract date in MM.DD.YY format
         date_match = re.search(r'(\d{1,2}\.\d{1,2}\.\d{2})', text)
         if date_match:
             date_str = date_match.group(1)
-            text = text.replace(date_match.group(0), '').strip()
-            return datetime.strptime(date_str, '%m.%d.%y'), text
+            try:
+                logger.debug(f"Date format MM.DD.YY matched. {date_str}")
+                return datetime.strptime(date_str, '%m.%d.%y')
+            except ValueError:
+                logger.debug(f"Date format MM.DD.YY matched but date not valid. Moving on. {date_str}")
+                pass
+
+        # Extract date in YYYY/MM/DD format
+        date_match = re.search(r'(\d{4}\/\d{1,2}\/\d{1,2})', text)
+        if date_match:
+            date_str = date_match.group(1)
+            try:
+                logger.debug(f"Date format YYYY/MM/DD matched. {date_str}")
+                return datetime.strptime(date_str, '%Y/%m/%d')
+            except ValueError:
+                logger.debug(f"Date format YYYY/MM/DD matched date but not valid. Moving on. {date_str}")
+                pass
 
         # Extract date in MM/DD/YY format
         date_match = re.search(r'(\d{1,2}\/\d{1,2}\/\d{2})', text)
         if date_match:
             date_str = date_match.group(1)
-            text = text.replace(date_match.group(0), '').strip()
-            return datetime.strptime(date_str, '%m/%d/%y'), text
+            try:
+                logger.debug(f"Date format MM/DD/YY matched. {date_str}")
+                return datetime.strptime(date_str, '%m/%d/%y')
+            except ValueError:
+                logger.debug(f"Date format MM/DD/YY matched but date not valid. Moving on. {date_str}")
+                pass
+
+        # Extract date in YYYY-MM-DD format
+        date_match = re.search(r'(\d{4}\-\d{1,2}\-\d{1,22})', text)
+        if date_match:
+            date_str = date_match.group(1)
+            try:
+                logger.debug(f"Date format YYYY-MM-DD matched. {date_str}")
+                return datetime.strptime(date_str, '%Y-%m-%d')
+            except ValueError:
+                logger.debug(f"Date format YYYY-MM-DD matched but date not valid. Moving on. {date_str}")
+                pass
 
         # Extract date in MM-DD-YY format
         date_match = re.search(r'(\d{1,2}\-\d{1,2}\-\d{2})', text)
         if date_match:
             date_str = date_match.group(1)
-            text = text.replace(date_match.group(0), '').strip()
-            return datetime.strptime(date_str, '%m-%d-%y'), text
+            try:
+                logger.debug(f"Date format MM-DD-YY matched. {date_str}")
+                return datetime.strptime(date_str, '%m-%d-%y')
+            except ValueError:
+                logger.debug(f"Date format MM-DD-YY matched but date not valid. Moving on. {date_str}")
+                pass
 
-        # Extract date in "Month DD, YYYY" format
-        date_match = re.search(r'(\b\w+\s\d{1,2},\s\d{4}\b)', text)
+        # Extract date in DD-MM-YY format
+        date_match = re.search(r'(\d{1,2}\-\d{1,2}\-\d{2})', text)
         if date_match:
             date_str = date_match.group(1)
-            text = text.replace(date_match.group(0), '').strip()
-            return datetime.strptime(date_str, '%B %d, %Y'), text
+            try:
+                logger.debug(f"Date format DD-MM-YY matched. {date_str}")
+                return datetime.strptime(date_str, '%d-%m-%y')
+            except ValueError:
+                logger.debug(f"Date format DD-MM-YY matched but date not valid. Moving on. {date_str}")
+                pass
 
-        return None, text
+        # Extract date in "Month DD, YYYY" format
+        date_match = re.search(r'(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}', text)
+        if date_match:
+            date_str = date_match.group(0)
+            try:
+                logger.debug(f"Date format Month DD, YYYY matched. {date_str}")
+                return datetime.strptime(date_str, '%B %d, %Y')
+            except ValueError:
+                logger.debug(f"Date format Month DD, YYYY matched but date not valid. Moving on. {date_str}")
+                pass
+
+        # Extract date in "Mon DD, YYYY" format
+        date_match = re.search(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\s+\d{1,2},\s+\d{4}', text)
+        if date_match:
+            date_str = date_match.group(0)
+            try:
+                logger.debug(f"Date format Mon DD, YYYY matched. {date_str}")
+                return datetime.strptime(date_str, '%b %d, %Y')
+            except ValueError:
+                logger.debug(f"Date format Mon DD, YYYY matched but date not valid. Moving on. {date_str}")
+                pass
+
+        return None
 
     @staticmethod
     async def normalize_date_stub(date_stub: str) -> str:
@@ -238,15 +306,16 @@ class Utils:
             raise
 
     @staticmethod
-    async def extract_teams(text) -> Tuple[str, str]:
+    def extract_teams(text) -> Tuple[str, str]:
         """
         Returns normalized home_team and away_team as defined in Metadata.team_abbreviations.
 
-        Returns 'Unknown' for one or both teams if the team_abbreviations lookup fails.
+        Returns 'unknown' for one or both teams if the team_abbreviations lookup fails.
         """
         # Normalize the title to lowercase for consistent comparison
         normalized_text = text.lower()
-        
+        logger.debug(f"Normalized text: {normalized_text}")
+
         # List of delimiters to look for
         for delimiter in [' at ', ' @ ', ' vs ', ' vs. ']:
             if delimiter in normalized_text:
@@ -263,21 +332,34 @@ class Utils:
                 def find_team_candidates(part, candidates_set):
                     for team in team_abbreviations:
                         if re.search(r'\b' + re.escape(team) + r'\b', part):
-                            candidates_set.add(team_abbreviations.get(team, 'Unknown'))
-                
-                # Extract team names from parts[0] (LHS of delimiter, away team)
-                find_team_candidates(parts[0], away_team_candidates)
+                            candidates_set.add(team_abbreviations.get(team, 'unknown'))
                 
                 # Extract team names from parts[1] (RHS of delimiter, home team)
                 find_team_candidates(parts[1], home_team_candidates)
+                logger.debug(f"Home team candidates ({len(home_team_candidates)}): {home_team_candidates}")
                 
-                # Handle different candidate scenarios
+                # Extract team names from parts[0] (LHS of delimiter, away team)
+                find_team_candidates(parts[0], away_team_candidates)
+                logger.debug(f"Away team candidates ({len(away_team_candidates)}): {away_team_candidates}")
+
+                ## Handle different candidate scenarios
+                # Both sides have exactly one candidate team
                 if len(away_team_candidates) == 1 and len(home_team_candidates) == 1:
-                    # Both sides have exactly one candidate team
                     known_away_team = next(iter(away_team_candidates))
                     known_home_team = next(iter(home_team_candidates))
                     return known_home_team, known_away_team
                 
+                # Away team is known, home team is empty
+                elif len(away_team_candidates) == 1 and len(home_team_candidates) == 0:
+                    known_away_team = next(iter(away_team_candidates))
+                    return 'unknown', known_away_team
+                
+                # Home team is known, away team is empty
+                elif len(home_team_candidates) == 1 and len(away_team_candidates) == 0:
+                    known_home_team = next(iter(home_team_candidates))
+                    return known_home_team, 'unknown'
+
+                # Away team is known, home team has multiple candidates
                 elif len(away_team_candidates) == 1 and len(home_team_candidates) > 1:
                     known_away_team = next(iter(away_team_candidates))
                     home_team_candidates.discard(known_away_team)
@@ -286,6 +368,10 @@ class Utils:
                         known_home_team = next(iter(home_team_candidates))
                         return known_home_team, known_away_team
                     
+                    elif len(home_team_candidates) > 1:
+                        return 'unknown', known_away_team
+                
+                # Home team is known, away team has multiple candidates
                 elif len(home_team_candidates) == 1 and len(away_team_candidates) > 1:
                     known_home_team = next(iter(home_team_candidates))
                     away_team_candidates.discard(known_home_team)
@@ -293,9 +379,13 @@ class Utils:
                     if len(away_team_candidates) == 1:
                         known_away_team = next(iter(away_team_candidates))
                         return known_home_team, known_away_team
+                    
+                    elif len(away_team_candidates) > 1:
+                        return known_home_team, 'unknown'
                 
+                # Both sides have multiple candidates
                 if len(away_team_candidates) > 1 and len(home_team_candidates) > 1:
-                    return 'Unknown', 'Unknown'
+                    return 'unknown', 'unknown'
 
         # Handle cases where no known delimiter is found or the team extraction fails
-        return 'Unknown', 'Unknown'
+        return 'unknown', 'unknown'
