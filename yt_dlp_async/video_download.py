@@ -1,12 +1,8 @@
 # Standard Libraries
 import os
 import re
-import asyncio
 import shutil
-import subprocess
-from datetime import datetime
 from dataclasses import dataclass
-from typing import List, Dict, Any, Optional
 
 # CLI and Logging
 import fire
@@ -18,11 +14,11 @@ import yt_dlp
 # First Party Libraries
 from .utils import Utils
 from .database import DatabaseOperations
-from .e_events import EventFetcher
+from .logger_config import LoggerConfig
 
 # Constants
 BASE_URL = "https://www.youtube.com/watch?v="
-OUTPUT_DIR = os.getenv('YT_DLP_OUTPUT_DIR', '/media/bigdaddy/data/yt-dlp-data/1aTemp/')
+OUTPUT_DIR = os.getenv('OUTPUT_DIR', '/media/bigdaddy/data/yt_dlp_data/')
 SUBTITLES_LANGS = ['en', 'en-orig']
 SUBTITLES_FORMAT = 'ttml'
 
@@ -42,22 +38,28 @@ class Fetcher:
         format_duration(duration): Formats the duration of the video.
     """
     video_id: str
-    video_name: Optional[str] = None
-
-    async def fetch(self):
+    
+    def __init__(self):
+        self.base_url: str = BASE_URL
+    
+    def fetch(self, video_id: str) -> None:
         """
         Fetches the video by downloading its audio from the given video URL.
 
         Returns:
             None
         """
-
+        self.video_id = video_id
         self.video_name = f"[Video {self.video_id}] "
-        base_url: str = "https://www.youtube.com/watch?v="
-        video_url = f"{base_url}{self.video_id}"
-        await self.download_audio(video_url)
+        self.video_url = f"{self.base_url}{self.video_id}"
 
-    async def download_audio(self, url: str):
+        # Configure loguru
+        LOGGER_NAME = f"download_{self.video_id}"
+        LoggerConfig.setup_logger(log_name=LOGGER_NAME, log_level='DEBUG')
+        logger.info(f"{self.video_name}Fetching video {self.video_id}")
+        self.download_audio()
+
+    def download_audio(self):
         """
         Downloads the audio from the given URL.
 
@@ -72,7 +74,7 @@ class Fetcher:
         """
 
         ydl_opts = {
-            'outtmpl': os.path.join(OUTPUT_DIR, '%(title)s.%(ext)s'),  # Specify output directory and file format
+            'outtmpl': os.path.join(OUTPUT_DIR, '1aTemp', '%(title)s.%(ext)s'),  # Specify output directory and file format
             'format':
                 'bestaudio[ext=m4a][acodec^=mp4a][format_note!*=DRC] \
                 /bestaudio[ext=m4a][acodec^=mp4a] \
@@ -93,7 +95,7 @@ class Fetcher:
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([url])
+                ydl.download([self.video_url])
         except yt_dlp.DownloadError as e:
             logger.error(f"{self.video_name}Download error: {e}")
         except Exception as e:
@@ -114,12 +116,11 @@ class Fetcher:
         - It logs a message when the download is finished, including the video name, the filename, and the default template.
         """
         if d['status'] == 'downloading':
-            logger.info(f"{self.video_name}Downloading: {d['_percent_str']} at {d['_speed_str']} ETA {d['_eta_str']}")
+            logger.debug(f"{self.video_name}Downloading: {d['_percent_str']} at {d['_speed_str']} ETA {d['_eta_str']}")
         if d['status'] == 'finished':
-            logger.info(f"{self.video_name}Download complete. {os.path.basename(d.get('filename'))} {d.get('_default_template')}")
-            logger.info(f"{self.video_name}Download finished, now post-processing...")
-
-    def postprocess_hook(self, d):
+            logger.info(f"{self.video_name}Download complete. \"{os.path.basename(d.get('filename'))}\" {d.get('_default_template')}")
+    
+    def postprocess_hook(self, d) -> bool:
         """
         Postprocesses the downloaded video file.
         Args:
@@ -129,8 +130,12 @@ class Fetcher:
         """
         try:
             if d['status'] == 'finished':
+                logger.info(f"{self.video_name}Post-processing started")
+
                 # Access info_dict
                 info_dict: dict = d.get('info_dict', {})
+                # logger.debug(f"{self.video_name}Info dict:\n{info_dict}")
+                
                 existing_filepath = info_dict.get('filepath', None)
                 if not existing_filepath:
                     return
@@ -157,24 +162,48 @@ class Fetcher:
                         
                         # Move the file to the new directory
                         shutil.move(old_file_path, new_file_path)
+
                         logger.info(f"{self.video_name}Moved: {old_file_path} -> {new_file_path}")
                         if file_extension == '.m4a':
-                            video_file_info: Dict[str, Any] = {
-                                'video_id': info_dict.get('id', ''),
-                                'format_id': info_dict.get('format_id'),
-                                'file_size': info_dict.get('filesize', ),
-                                'local_path': new_file_path
-                            }
-                            DatabaseOperations.insert_video_file(video_file_info)
+                            # Initialize video_file_info as a dictionary
+                            video_file_info = {}
+                            def populate_video_file_info(info_dict, new_file_path):
+                                # Ensure info_dict contains the necessary keys
+                                video_id = info_dict.get('id', '')
+                                a_format_id = info_dict.get('format_id')
+                                file_size = info_dict.get('filesize', 0)  # Provide a default value of 0 if filesize is not present
+                                local_path = new_file_path.replace(OUTPUT_DIR, '')
 
-            if d['status'] == 'finished':
+                                logger.debug(f"{self.video_name}Video ID: {video_id}")
+                                logger.debug(f"{self.video_name}Format ID: {a_format_id}")
+                                logger.debug(f"{self.video_name}File size: {file_size}")
+                                logger.debug(f"{self.video_name}Local path: {local_path}")
+
+                                # Check if video_id is not empty
+                                if video_id:
+                                    video_file_info[video_id] = {
+                                        'a_format_id': a_format_id,
+                                        'file_size': file_size,
+                                        'local_path': local_path
+                                    }
+                                else:
+                                    logger.error("Video ID is missing in info_dict")
+                            populate_video_file_info(info_dict, new_file_path)
+                            logger.debug(f"{self.video_name}Video file info: {video_file_info}")
+                            
+                            logger.info(f"{self.video_name}Inserting video file info into the database")
+                            db_success: bool = DatabaseOperations.update_audio_file(video_file_info)
+                            if not db_success:
+                                logger.error(f"{self.video_name}Failed to insert video file info into the database")
+                                return False
+                            logger.info(f"{self.video_name}Inserted video file info into the database")
+
                 logger.info(f"{self.video_name}Post-processing finished")
-
             return True
 
         except Exception as e:
             logger.error(f"{self.video_name}Post-processing error\n{e}")
-            return False  # Indicate failure
+            return False
 
     def determine_path_and_name(self, info_dict: dict) -> tuple:
         """
@@ -196,14 +225,14 @@ class Fetcher:
         dynamic_range:str = str(info_dict.get('dynamic_range', 'None'))
         if dynamic_range == 'None':
             dynamic_range = 'No DRC'
-        duration:int = info_dict.get('duration', 0)
+        duration:str = info_dict.get('duration', '0')
 
         # Try to extract date from title first
-        date_obj, title = Utils.extract_date(title)
+        date_obj = Utils.extract_date(title)
 
         # If date is not found in the title, try the description
         if not date_obj:
-            date_obj, description = Utils.extract_date(description)
+            date_obj = Utils.extract_date(description)
 
         # If date is still not found, use 'date_unknown'
         if not date_obj:
@@ -214,36 +243,33 @@ class Fetcher:
             path_date = date_obj.strftime('%Y/%m/%d')
             filename_date = date_obj.strftime('%Y.%m.%d')
 
-            # Run the EventFetcher
-            EventFetcher.run(path_date)
-
         # Try to extract teams from title first
         home_team, away_team = Utils.extract_teams(title)
 
         if home_team == 'Unknown' and away_team == 'Unknown':
             # Try to extract teams from description
             home_team, away_team = Utils.extract_teams(description)
-
+        
         # If home_team is unknown, try looking it up in e_events using the date and away team
         if home_team == 'Unknown':
             home_team = DatabaseOperations.get_e_events_team_info(date_obj, away_team, is_home_unknown=True)
         # If away_team is unknown, try looking it up in e_events using the date and home team
         elif away_team == 'Unknown':
             away_team = DatabaseOperations.get_e_events_team_info(date_obj, home_team, is_home_unknown=False)
-
+    
         # Retrieve the e_event_id using the date, home team, and away team
-        e_event_id = DatabaseOperations.get_e_events_event_id(date_obj, home_team, away_team)
-        
+        e_event_id = DatabaseOperations.get_event_id(date_obj, home_team, away_team)
+    
         # Convert the duration to a string
-        duration_string = self.format_duration(duration)
-        
+        duration_string = self.format_duration(str(duration))
+
         # Construct the path and file name
         e_id = ''
         if e_event_id:
             e_id = f"{{e-{e_event_id}}}"
-        path = f"/media/bigdaddy/data/yt-dlp-data/{path_date}/"
+        path = f"{OUTPUT_DIR}{path_date}/"
         if home_team == 'Unknown' or away_team == 'Unknown':
-            path = f"/media/bigdaddy/data/yt-dlp-data/unknown_teams/{path_date}/"        
+            path = f"{OUTPUT_DIR}unknown_teams/{path_date}/"        
         file_name = f"{away_team} at {home_team} - {filename_date} - [{language}][{duration_string}][{asr}][{dynamic_range}][{acodec}][{quality}][{format_note}]{{fid-{format_id}}}{e_id}{{yt-{video_id}}}"
 
         return path, file_name
@@ -260,6 +286,13 @@ class Fetcher:
         """
         match = re.match(r'PT(\d+H)?(\d+M)?(\d+S)?', duration)
         if not match:
-            return duration
+            return str(duration)
         hours, minutes, seconds = match.groups()
+        
         return f"{hours or '0H'} {minutes or '0M'} {seconds or '0S'}".strip()
+
+def cmd() -> None:
+    """
+    Command line interface for running the Fetcher.
+    """
+    fire.Fire(Fetcher())
