@@ -23,6 +23,7 @@ sshtunnel = "^0.4.0"
 get-video-id = "yt_dlp_async.video_id:cmd"
 get-metadata = "yt_dlp_async.video_metadata:cmd"
 get-audio-file = "yt_dlp_async.video_file:cmd"
+download-audio-file = "yt_dlp_async.video_download:cmd"
 
 [build-system]
 requires = ["poetry-core"]

@@ -17,8 +17,8 @@ from .database import DatabaseOperations
 from .logger_config import LoggerConfig
 
 # Configure loguru
-LOGGER_NAME = "id"
-LoggerConfig.setup_logger(LOGGER_NAME)
+LOG_NAME = "id"
+LoggerConfig.setup_logger(log_name=LOG_NAME)
 
 class QueueManager:
     def __init__(self):

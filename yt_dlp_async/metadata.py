@@ -217,4 +217,16 @@ class Metadata:
         'washington': 'was',
         'wsh': 'was',
         'was': 'was',
+
+        # full team name: national league all stars
+        'national league all stars': 'nlas',
+        'national league': 'nlas',
+        'nl': 'nlas',
+        'nls': 'nlas',
+
+        # full team name: american league all stars
+        'american league all stars': 'alas',
+        'american league': 'alas',
+        'al': 'alas',
+        'als': 'alas',
     }
