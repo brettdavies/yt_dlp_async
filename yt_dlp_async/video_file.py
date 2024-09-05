@@ -14,8 +14,8 @@ from .database import DatabaseOperations
 from .logger_config import LoggerConfig
 
 # Configure loguru
-LOGGER_NAME = "file"
-LoggerConfig.setup_logger(LOGGER_NAME)
+LOG_NAME = "file"
+LoggerConfig.setup_logger(log_name=LOG_NAME)
 
 class QueueManager:
     def __init__(self):
@@ -52,18 +52,20 @@ class VideoFileOperations:
 
                 try:
                     logger.info(f"[Worker {worker_id}] Processing video {video_id}")
-                    cmd: List[str] = ["python3", "-m", "yt-dlp-async.video_download", "--video_id", f"'{video_id}'"]
-                    process: asyncio.subprocess.Process = await asyncio.create_subprocess_exec(
+                    cmd: List[str] = ["poetry", "run", "download-audio-file", "fetch", "--video_id", f"\"{video_id}\""]
+                    logger.debug(f"[Worker {worker_id}] Running command: {' '.join(cmd)}")
+                    process = await asyncio.create_subprocess_exec(
                         *cmd,
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE
                     )
                     stdout, stderr = await process.communicate()
+                    logger.debug(f"[Worker {worker_id}] Subprocess stdout\n{stdout.decode()}")
+                    logger.debug(f"[Worker {worker_id}] Subprocess stderr\n{stderr.decode()}")
                     if process.returncode != 0:
                         logger.error(f"[Worker {worker_id}] Error fetching video {video_id}: {stderr.decode()}")
                         raise Exception(f"[Worker {worker_id}] Error fetching video {video_id}: {stderr.decode()}")
                     logger.info(f"[Worker {worker_id}] Finished processing video {video_id}")
-                    logger.debug(f"[Worker {worker_id}] Subprocess output {stdout.decode()}")
                 finally:
                     self.queue_manager.video_file_queue.task_done()
 
@@ -77,10 +79,11 @@ class VideoFileOperations:
     @staticmethod
     async def identify_video_files(existing_videos_dir):
         try:
+            video_file_info = {}
             for root, _, files in os.walk(existing_videos_dir):
                 for file in files:
                     if file.endswith('.m4a'):
-                        video_file = {}
+                        video_file_info = {}
                         full_path = os.path.join(root, file)
                         relative_path = full_path.replace(existing_videos_dir, '')
                         file_name_parts = file.split('{')
@@ -94,13 +97,16 @@ class VideoFileOperations:
                             if video_id and a_format_id:
                                 break
 
-                        video_file[video_id] = {
+                        if video_id:
+                            video_file_info[video_id] = {
                                 'local_path': relative_path,
                                 'file_size': os.path.getsize(full_path),
                                 'a_format_id': a_format_id
                             }
-                        logger.info(f"Found video_id {video_id} with file size {video_file[video_id]['file_size']} bytes and audio_format_id {video_file[video_id]['a_format_id']} at \"{video_file[video_id]['local_path']}\".") # Wait until the queue is fully processed
-                        DatabaseOperations.update_video_file(video_file)
+                            logger.info(f"Found video_id {video_id} with file size {video_file_info[video_id]['file_size']} bytes and audio_format_id {video_file_info[video_id]['a_format_id']} at \"{video_file_info[video_id]['local_path']}\".")
+
+            if video_file_info:
+                DatabaseOperations.update_audio_file(video_file_info)
 
         except Exception as e:
             logger.error(f"{e}")
@@ -108,6 +114,7 @@ class VideoFileOperations:
 @dataclass(slots=True)
 class Fetcher:
     queue_manager: QueueManager
+    logger: Any
 
     def __init__(self):
         """
@@ -116,6 +123,7 @@ class Fetcher:
         Args:
             queue_manager (QueueManager): An instance of QueueManager to manage queues.
         """
+        self.logger: Any = logger
         # Instantiate QueueManager
         self.queue_manager = QueueManager()
 
@@ -142,7 +150,7 @@ class Fetcher:
                 logger.info(f"Processing existing videos in directory: {existing_videos_dir}")
                 await VideoFileOperations.identify_video_files(existing_videos_dir)
             
-            video_ids: List[str] = DatabaseOperations.get_video_ids_without_files()
+            video_ids: List[str] = await DatabaseOperations.get_video_ids_without_files()
             for video_id in video_ids:
                 await self.queue_manager.video_file_queue.put(video_id)
             logger.info(f"Size of video_file_queue after put: {self.queue_manager.video_file_queue.qsize()}")
