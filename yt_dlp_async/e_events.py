@@ -35,7 +35,7 @@ class EventFetcher:
     BASE_URL = "https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard"
     LIMIT = 1000
 
-    def __init__(self, date_stub: str) -> None:
+    def __init__(self) -> None:
         """
         Initialize the Event class with a date stub.
         Args:
@@ -43,14 +43,16 @@ class EventFetcher:
         Raises:
             ValueError: If the date_stub is not in a valid format.
         """
-        self.date_stub = Utils.normalize_date_stub(date_stub)
-        self.url = f"{self.BASE_URL}?limit={self.LIMIT}&dates={self.date_stub}"
         self.team_abbreviations = Metadata.team_abbreviations
 
-    def setup(self) -> None:
-        self.already_loaded = DatabaseOperations.check_if_existing_e_events_by_date(self.date_stub)
+    async def setup(self, date_stub: str) -> None:
+        self.date_stub = await Utils.normalize_date_stub(date_stub)
+        self.url = f"{self.BASE_URL}?limit={self.LIMIT}&dates={self.date_stub}"
+        logger.debug(f"Setting up EventFetcher with date_stub: {self.date_stub}")
+        self.already_loaded = await DatabaseOperations.check_if_existing_e_events_by_date(self.date_stub)
+        logger.debug(f"Data already loaded: {self.already_loaded}")
 
-    def fetch_data(self) -> Dict:
+    async def fetch_data(self) -> Dict:
         """
         Fetches data from the specified URL.
 
@@ -65,7 +67,7 @@ class EventFetcher:
             logger.error(f"Failed to retrieve data: {e}")
             return None
 
-    def process_event(self, event) -> List:
+    async def process_event(self, event) -> List:
         """
         Process an event and extract relevant information.
 
@@ -101,7 +103,7 @@ class EventFetcher:
             logger.error(f"process_event() KeyError: {e}")
             return None
 
-    def extract_events(self, data) -> List[Optional[List]]:
+    async def extract_events(self, data) -> List[Optional[List]]:
         """
         Extracts events from the given data.
 
@@ -115,12 +117,12 @@ class EventFetcher:
         events = data.get('events', [])
         processed_events = []
         for event in events:
-            processed_event = self.process_event(event)
+            processed_event = await self.process_event(event)
             if processed_event:
                 processed_events.append(processed_event)
         return processed_events
 
-    def create_dataframe(self, events_data) -> pd.DataFrame:
+    async def create_dataframe(self, events_data) -> pd.DataFrame:
         """
         Create a pandas DataFrame from the given events_data.
 
@@ -141,31 +143,31 @@ class EventFetcher:
         columns = ['event_id', 'date', 'type', 'short_name', 'home_team','away_team', 'home_team_normalized', 'away_team_normalized']
         return pd.DataFrame(events_data, columns=columns)
 
-    def save_to_database(self, dataframe) -> None:
+    async def save_to_database(self, dataframe) -> None:
         """
         Saves the given dataframe to the database.
 
         Parameters:
         - dataframe: The dataframe to be saved.
         """
-        DatabaseOperations.save_events(dataframe)
+        await DatabaseOperations.save_events(dataframe)
 
-    def run(self) -> None:
+    async def run(self, date_stub:str) -> None:
         """
         Runs the EventFetcher.
 
         This method sets up the necessary configurations, fetches data, extracts events from the data,
         creates a dataframe from the events data, and saves the dataframe to the database.
         """
-        self.setup()
+        await self.setup(date_stub)
         logger.info(f"Starting EventFetcher with date_stub: {self.date_stub}")
         if not self.already_loaded:
-            data = self.fetch_data()
+            data = await self.fetch_data()
             if data:
-                events_data = self.extract_events(data)
+                events_data = await self.extract_events(data)
                 if events_data:
-                    df = self.create_dataframe(events_data)
-                    self.save_to_database(df)
+                    df = await self.create_dataframe(events_data)
+                    await self.save_to_database(df)
                     logger.info("Data successfully saved to the database.")
                 else:
                     logger.warning("No events data to process.")
