@@ -45,7 +45,12 @@ class LoggerConfig:
         logger.remove()
 
         # Add a logger for the screen (stderr)
-        logger.add(sys.stderr, format="{time} - {level} - {message}", level=log_level)
-
+        logger.add(
+            sys.stderr,
+            format="{time} - <level>{level} - {message}</level>",
+            colorize=True,
+            level=log_level
+        )
+        
         # Add a logger for the log file
         logger.add(log_file_path, format="{time} - {level} - {message}", level=log_level)
