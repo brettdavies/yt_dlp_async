@@ -5,7 +5,8 @@ import psycopg2
 from psycopg2 import pool
 from contextlib import contextmanager
 from sshtunnel import SSHTunnelForwarder
-from typing import Any, Dict, List, Optional, Tuple
+from psycopg2.extras import DictCursor
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 # Logging and Configuration
 from loguru import logger
@@ -17,213 +18,210 @@ import pandas as pd
 # Load environment variables from .env file
 load_dotenv()
 
-# SSH and database configuration
-SSH_HOST = os.environ.get('SSH_HOST')
-SSH_PORT = int(os.environ.get('SSH_PORT', 22))
-SSH_USER = os.environ.get('SSH_USER')
-SSH_KEY_PATH = os.environ.get('SSH_KEY_PATH')
-REMOTE_BIND_ADDRESS = ('127.0.0.1', 5432)
-
-DB_USER = os.environ.get('DB_USER')
-DB_PASSWORD = os.environ.get('DB_PASSWORD')
-DB_NAME = os.environ.get('DB_NAME')
-
-
 class DatabaseOperations:
-    """
-    Provides database operations including connection management and query execution.
-    """
-    # Initialize the SSH tunnel
-    tunnel = SSHTunnelForwarder(
-        (SSH_HOST, SSH_PORT),
-        ssh_username=SSH_USER,
-        ssh_pkey=SSH_KEY_PATH,
-        remote_bind_address=REMOTE_BIND_ADDRESS
-    )
-    tunnel.start()
-
-    # Initialize the connection pool
-    connection_pool = pool.SimpleConnectionPool(
-        minconn=1,
-        maxconn=10,  # Adjust the max connections based on your requirements
-        user=DB_USER,
-        password=DB_PASSWORD,
-        host='127.0.0.1',
-        port=tunnel.local_bind_port,
-        database=DB_NAME
-    )
-
-    @staticmethod
-    @contextmanager
-    def get_db_connection():
+    def __init__(self) -> None:
         """
-        Provides a context manager for database connections.
+        Initialize the SSH tunnel and the psycopg2 connection pool.
+        """
+        # SSH and database configuration
+        ssh_host = os.environ.get('SSH_HOST')
+        ssh_port = int(os.environ.get('SSH_PORT', 22))
+        ssh_user = os.environ.get('SSH_USER')
+        ssh_key_path = os.environ.get('SSH_KEY_PATH')
+        remote_bind_address = ('127.0.0.1', 5432)
 
-        Ensures that the database connection is properly closed after use.
+        db_user = os.environ.get('DB_USER')
+        db_password = os.environ.get('DB_PASSWORD')
+        db_name = os.environ.get('DB_NAME')
 
-        Yields:
-            psycopg2.extensions.connection: A database connection object.
+        # Validate required SSH and DB configurations
+        required_vars = ['SSH_HOST', 'SSH_PORT', 'SSH_USER', 'SSH_KEY_PATH', 'DB_USER', 'DB_PASSWORD', 'DB_NAME']
+        missing = [var for var in required_vars if not os.environ.get(var)]
+        if missing:
+            logger.error(f"Missing required environment variables for SSH or DB: {', '.join(missing)}")
+            raise EnvironmentError(f"Missing required environment variables: {', '.join(missing)}")
 
-        Raises:
-            psycopg2.Error: If an error occurs obtaining the database connection.
+        try:
+            # Initialize the SSH tunnel
+            self.tunnel = SSHTunnelForwarder(
+                (ssh_host, ssh_port),
+                ssh_username=ssh_user,
+                ssh_pkey=ssh_key_path,
+                remote_bind_address=remote_bind_address
+            )
+            self.tunnel.start()
+            logger.warning(f"SSH tunnel established on local port {self.tunnel.local_bind_port}.")
+
+            # Initialize the connection pool
+            self.connection_pool = pool.SimpleConnectionPool(
+                minconn=1,
+                maxconn=10,  # Adjust the max connections based on your requirements
+                user=db_user,
+                password=db_password,
+                host='127.0.0.1',
+                port=self.tunnel.local_bind_port,
+                database=db_name
+            )
+            logger.warning("Database connection pool created successfully.")
+
+        except Exception as e:
+            logger.error(f"Unexpected error during initialization: {e}")
+            self.close()  # Ensure resources are cleaned up
+            raise
+
+    def __enter__(self):
+        """
+        Enter the runtime context related to this object.
+        """
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        """
+        Exit the runtime context and clean up resources.
+        """
+        self.close()
+
+    def close(self):
+        """
+        Close the connection pool and the SSH tunnel.
+        """
+        try:
+            if hasattr(self, 'connection_pool') and self.connection_pool:
+                self.connection_pool.closeall()
+                logger.warning("Database connection pool closed.")
+
+            if hasattr(self, 'tunnel') and self.tunnel:
+                self.tunnel.stop()
+                logger.warning("SSH tunnel closed.")
+        except Exception as e:
+            logger.error(f"Error during closing resources: {e}")
+
+    @contextmanager
+    def get_db_connection(self, worker_name: Optional[str]) -> Any:
+        """
+        Context manager for database connection.
+        Ensures that the connection is properly returned to the pool.
         """
         conn = None
         try:
-            conn = DatabaseOperations.connection_pool.getconn()
+            conn = self.connection_pool.getconn()
+            if conn is None:
+                logger.error(f"{"["+worker_name+"] " if worker_name else None}Failed to obtain database connection from the pool.")
+                raise psycopg2.OperationalError(f"{"["+worker_name+"] " if worker_name else None}Unable to obtain database connection.")
             yield conn
         except psycopg2.Error as e:
-            logger.error(f"Error obtaining database connection: {e}")
+            logger.error(f"{"["+worker_name+"] " if worker_name else None}Error obtaining database connection: {e}")
             raise
         finally:
             if conn:
-                DatabaseOperations.connection_pool.putconn(conn)
+                self.connection_pool.putconn(conn)
+                logger.debug(f"{"["+worker_name+"] " if worker_name else None}Database connection returned to the pool.")
 
-    @staticmethod
-    def close_connection_pool():
+    def execute_query(self, worker_name: str, query: str, params: tuple, operation: str = 'fetch') -> Optional[Union[List[Dict], int]]:
         """
-        Closes all connections in the connection pool.
-        """
-        DatabaseOperations.connection_pool.closeall()
-
-    @staticmethod
-    async def execute_query(query: str, params: Tuple = ()) -> List[Tuple]:
-        """
-        Executes a SQL query with error handling and logging.
+        Execute a database query.
 
         Args:
-            query: The SQL query to execute.
-            params: The parameters for the SQL query.
+            worker_name (str): Name of the worker executing the query.
+            query (str): SQL query to execute.
+            params (tuple): Parameters for the SQL query.
+            operation (str): Type of operation ('fetch', 'commit', 'execute'). Defaults to 'fetch'.
 
         Returns:
-            A list of tuples representing the result of the query.
-
-        Raises:
-            psycopg2.Error: If a database error occurs.
-            Exception: For any other exceptions.
+            Optional[Union[List[Dict], int]]: Result of the query based on the operation type.
         """
-        with DatabaseOperations.get_db_connection() as conn:
-            try:
-                with conn.cursor() as cursor:
+        try:
+            with self.get_db_connection(worker_name) as conn:
+                with conn.cursor(cursor_factory=DictCursor) as cursor:
                     cursor.execute(query, params)
-                    result = cursor.fetchall()
-                conn.commit()
-                return result
-            except psycopg2.Error as e:
-                logger.error(f"SQL Error: {e}")
+                    
+                    if operation == 'fetch':
+                        return cursor.fetchall()
+                    elif operation == 'commit':
+                        conn.commit()
+                        return cursor.rowcount
+                    elif operation == 'execute':
+                        return cursor.rowcount
+                    else:
+                        logger.error(f"Unknown operation type: {operation}")
+                        return None
+        except psycopg2.Error as e:
+            logger.error(f"SQL Error when executing query: {e}")
+            if operation == 'commit':
                 conn.rollback()
-                return []
-            except Exception as e:
-                logger.error(f"An error occurred: {e}")
-                conn.rollback()
-                return []
+                logger.debug(f"[{worker_name}] Transaction rolled back due to error.")
 
-    @staticmethod
-    async def get_count_videos_to_be_processed() -> Optional[int]:
+            return None
+
+    def get_count_videos_to_be_processed(self) -> Optional[int]:
         """
         Retrieves the count of videos to be processed from the database.
 
         Returns:
             The count of videos to be processed, or None if an error occurs.
         """
-        with DatabaseOperations.get_db_connection() as conn:
-            try:
-                query = """
-                SELECT COUNT(1) FROM yt_videos_to_be_processed
-                """
-                with conn.cursor() as cur:
-                    cur.execute(query)
-                    count_result = cur.fetchone()[0]
-                conn.commit()
-            except psycopg2.Error as e:
-                logger.error(f"SQL Error when retrieving the count of videos to be processed:\n{e}")
-                return None
+        query = """
+        SELECT COUNT(1) FROM yt_videos_to_be_processed
+        """
+        count_result = self.execute_query(None, query, ())
 
-        return count_result
+        if count_result is not None:
+            return count_result[0][0]
+        else:
+            return None
 
-    @staticmethod
-    async def get_video_ids_without_metadata() -> List[str]:
+    def get_video_ids_without_metadata(self) -> List[str]:
         """
         Retrieves a list of video IDs without metadata from the database.
 
         Returns:
             A list of video IDs that lack associated metadata.
-
-        Raises:
-            psycopg2.Error: If a database error occurs.
         """
         video_ids: List[str] = []
 
-        with DatabaseOperations.get_db_connection() as conn:
-            try:
-                with conn.cursor() as cursor:
-                    query = """
-                        SELECT video_id 
-                        FROM yt_videos_to_be_processed 
-                        WHERE has_failed_metadata = FALSE
-                        ORDER BY RANDOM() 
-                        LIMIT 50
-                    """
-                    cursor.execute(query)
-                    result = cursor.fetchall()
-                    video_ids = [row[0] for row in result]
-                conn.commit()
-            except psycopg2.Error as e:
-                logger.error(f"SQL Error when retrieving the video ids without metadata:\n{e}")
-                return []
+        query = """
+            SELECT video_id 
+            FROM yt_videos_to_be_processed 
+            WHERE has_failed_metadata = FALSE
+            ORDER BY RANDOM() 
+            LIMIT 50
+        """
+        result = self.execute_query(None, query, ())
+        if result is not None:
+            video_ids = [row[0] for row in result]
         return video_ids
 
-    @staticmethod
-    async def set_video_id_failed_metadata_true(video_ids: set[str]):
+    def set_video_id_failed_metadata_true(self, video_ids: set[str]) -> None:
         """
         Marks the given video IDs as having failed metadata retrieval.
 
         Args:
             video_ids: A set of video IDs to update.
-
-        Raises:
-            psycopg2.Error: If a database error occurs.
         """
-        with DatabaseOperations.get_db_connection() as conn:
-            try:
-                query = """
-                UPDATE yt_videos_to_be_processed
-                SET has_failed_metadata = TRUE
-                WHERE video_id = %s
-                """
-                with conn.cursor() as cursor:
-                    cursor.executemany(query, [(vid,) for vid in video_ids])
-                conn.commit()
-            except Exception as e:
-                conn.rollback()
-                logger.error(f"SQL Error when updating has_failed_metadata:\n{e}")
+        query = """
+        UPDATE yt_videos_to_be_processed
+        SET has_failed_metadata = TRUE
+        WHERE video_id = %s
+        """
+        params = [(vid,) for vid in video_ids]
+        self.execute_query(None, query, params, operation='commit')
 
-    @staticmethod
-    async def insert_video_ids(video_ids_batch: List[str]):
+    def insert_video_ids(self, video_ids_batch: List[str]) -> None:
         """
         Inserts a batch of video IDs into the database.
 
         Args:
             video_ids_batch: The batch of video IDs to insert.
-
-        Raises:
-            psycopg2.Error: If a database error occurs during insertion.
         """
-        with DatabaseOperations.get_db_connection() as conn:
-            try:
-                with conn.cursor() as cursor:
-                    insert_query = """
-                    INSERT INTO yt_video_ids (video_id)
-                    VALUES (%s)
-                    ON CONFLICT (video_id) DO NOTHING;
-                    """
-                    cursor.executemany(insert_query, [(video_id,) for video_id in video_ids_batch])
-                    conn.commit()
-                    logger.info(f"Inserted {len(video_ids_batch)} video IDs into the database.")
-            except psycopg2.Error as e:
-                logger.error(f"SQL Error when inserting video ids:\n{e}")
+        insert_query = """
+        INSERT INTO yt_video_ids (video_id)
+        VALUES (%s)
+        ON CONFLICT (video_id) DO NOTHING;
+        """
+        params = [(video_id,) for video_id in video_ids_batch]
+        self.execute_query(None, insert_query, params, operation='commit')
 
-    @staticmethod
-    async def insert_video_ids_bulk(id_file_path: str):
+    def insert_video_ids_bulk(self, id_file_path: str) -> None:
         """
         Inserts video IDs in bulk from a file into the database.
 
@@ -273,8 +271,7 @@ class DatabaseOperations:
                 logger.error(f"SQL Error when writing bulk video ids from: {id_file_path}:\n{e}")
                 conn.rollback()
 
-    @staticmethod
-    async def insert_update_video_metadata(metadata: Dict[str, Any]):
+    def insert_update_video_metadata(self, metadata: Dict[str, Any]) -> None:
         """
         Inserts or updates video metadata in the database.
 
@@ -412,41 +409,31 @@ class DatabaseOperations:
                 logger.error(f"SQL Error when writing metadata for video {metadata['video_id']}:\n{e}")
                 conn.rollback()
 
-    @staticmethod
-    def get_dates_no_event_metadata():
+    def get_dates_no_event_metadata(self) -> List[datetime.datetime]:
         """
         Retrieves dates that have no associated event metadata.
 
         Returns:
             A list of dates lacking event metadata.
-
-        Raises:
-            psycopg2.Error: If a database error occurs during retrieval.
         """
-        with DatabaseOperations.get_db_connection() as conn:
-            try:
-                query = """
-                SELECT *
-                FROM (
-                    SELECT DISTINCT yt_metadata.event_date_local_time
-                    FROM yt_metadata
-                    LEFT JOIN e_events ON yt_metadata.event_date_local_time = e_events.date::DATE
-                    WHERE e_events.date IS NULL
-                ) AS distinct_dates
-                ORDER BY RANDOM()
-                """
-                with conn.cursor() as cursor:
-                    cursor.execute(query)
-                    result = cursor.fetchall()
-                    dates_no_event_metadata = [row[0] for row in result]
-                conn.commit()
-            except psycopg2.Error as e:
-                logger.error(f"SQL Error when retrieving dates without event metadata:\n{e}")
-                return []
+        query = """
+        SELECT *
+        FROM (
+            SELECT DISTINCT yt_metadata.event_date_local_time
+            FROM yt_metadata
+            LEFT JOIN e_events ON yt_metadata.event_date_local_time = e_events.date::DATE
+            WHERE e_events.date IS NULL
+        ) AS distinct_dates
+        ORDER BY RANDOM()
+        """
+        result = self.execute_query(None, query, ())
+        if result is not None:
+            dates_no_event_metadata = [row[0] for row in result]
+        else:
+            dates_no_event_metadata = []
         return dates_no_event_metadata
 
-    @staticmethod
-    async def save_events(df: pd.DataFrame):
+    def save_events(self, df: pd.DataFrame) -> None:
         """
         Inserts events into the 'e_events' table in the database.
 
@@ -455,7 +442,6 @@ class DatabaseOperations:
 
         Raises:
             ValueError: If the DataFrame does not contain all the required columns.
-            psycopg2.Error: If a database error occurs during insertion.
         """
         required_columns = ['event_id', 'date', 'type', 'short_name', 'home_team', 'away_team',
                             'home_team_normalized', 'away_team_normalized']
@@ -466,25 +452,17 @@ class DatabaseOperations:
 
         records = df[required_columns].values.tolist()
 
-        with DatabaseOperations.get_db_connection() as conn:
-            try:
-                query = """
-                INSERT INTO e_events (event_id, date, type, short_name, home_team, away_team, home_team_normalized, away_team_normalized)
-                VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s
-                ) ON CONFLICT (event_id) DO NOTHING
-                """
-                with conn.cursor() as cursor:
-                    cursor.executemany(query, records)
-                conn.commit()
-            except psycopg2.Error as e:
-                logger.error(f"SQL Error when writing events:\n{e}")
-                logger.debug(f"SQL cursor: {cursor.query}")
-                logger.debug(f"Failed records: {records}")
-                conn.rollback()
+        insert_query = """
+        INSERT INTO e_events (event_id, date, type, short_name, home_team, away_team, home_team_normalized, away_team_normalized)
+        VALUES (
+        %s, %s, %s, %s, %s, %s, %s, %s
+        ) ON CONFLICT (event_id) DO NOTHING
+        """
 
-    @staticmethod
-    async def check_if_existing_e_events_by_date(date_obj: datetime.datetime) -> bool:
+        params = records
+        self.execute_query(None, insert_query, params, operation='commit')
+
+    def check_if_existing_e_events_by_date(self, date_obj: datetime.datetime) -> bool:
         """
         Checks if there are existing events in 'e_events' for the given date.
 
@@ -493,29 +471,18 @@ class DatabaseOperations:
 
         Returns:
             True if events exist for the given date, False otherwise.
-
-        Raises:
-            psycopg2.Error: If a database error occurs during the check.
         """
-        with DatabaseOperations.get_db_connection() as conn:
-            try:
-                query = """
-                SELECT COUNT(1)
-                FROM e_events
-                WHERE (date AT TIME ZONE 'America/New_York')::date = %s::date
-                """
-                with conn.cursor() as cursor:
-                    cursor.execute(query, (date_obj,))
-                    count_result = cursor.fetchone()[0]
-                conn.commit()
-            except psycopg2.Error as e:
-                logger.error(f"SQL Error when retrieving events with date {date_obj}:\n{e}")
-                return False
+        query = """
+        SELECT COUNT(1)
+        FROM e_events
+        WHERE (date AT TIME ZONE 'America/New_York')::date = %s::date
+        """
+        params = (date_obj,)
+        count_result = self.execute_query(None, query, params)[0][0]
 
-            return count_result > 0
+        return count_result > 0
 
-    @staticmethod
-    def get_e_events_team_info(date_obj: datetime.datetime, opposing_team: str, is_home_unknown: bool) -> Tuple[Optional[str], Optional[str]]:
+    def get_e_events_team_info(self, date_obj: datetime.datetime, opposing_team: str, is_home_unknown: bool) -> Tuple[Optional[str], Optional[str]]:
         """
         Retrieves normalized team abbreviation from 'e_events'.
 
@@ -526,37 +493,28 @@ class DatabaseOperations:
 
         Returns:
             A tuple containing the event ID (optional) and the normalized team abbreviation (optional).
-
-        Raises:
-            psycopg2.Error: If a database error occurs during retrieval.
         """
-        with DatabaseOperations.get_db_connection() as conn:
-            try:
-                event_id = None
-                team = 'Unknown'
-                team_column = 'home_team_normalized' if is_home_unknown else 'away_team_normalized'
-                opposing_column = 'away_team' if is_home_unknown else 'home_team'
-                query = f"""
-                SELECT {team_column}
-                FROM e_events
-                WHERE (date AT TIME ZONE 'America/New_York')::date = %s::date
-                    AND {opposing_column} = %s
-                """
-                with conn.cursor() as cursor:
-                    cursor.execute(query, (date_obj, opposing_team))
-                    result = cursor.fetchone()
-                    if result:
-                        team = result[0]
-                    else:
-                        team = 'Unknown'
-                conn.commit()
-            except psycopg2.Error as e:
-                logger.error(f"SQL Error when retrieving team information.\n{e}")
-                return event_id, 'Unknown'
+        event_id = None
+        team = 'Unknown'
+        team_column = 'home_team_normalized' if is_home_unknown else 'away_team_normalized'
+        opposing_column = 'away_team' if is_home_unknown else 'home_team'
+
+        select_query = f"""
+        SELECT {team_column}
+        FROM e_events
+        WHERE (date AT TIME ZONE 'America/New_York')::date = %s::date
+            AND {opposing_column} = %s
+        """
+
+        params = (date_obj, opposing_team)
+        result = self.execute_query(None, select_query, params)
+        if result:
+            team = result[0][0]
+        else:
+            team = 'Unknown'
         return event_id, team
 
-    @staticmethod
-    def get_event_id(date_obj: datetime.datetime, home_team: str, away_team: str) -> Optional[str]:
+    def get_event_id(self, date_obj: datetime.datetime, home_team: str, away_team: str) -> Optional[str]:
         """
         Retrieves the event ID based on date and team information.
 
@@ -567,46 +525,35 @@ class DatabaseOperations:
 
         Returns:
             The event ID if found, otherwise None.
-
-        Raises:
-            psycopg2.Error: If a database error occurs during retrieval.
         """
         if home_team == 'Unknown' and away_team == 'Unknown':
             return None
 
-        with DatabaseOperations.get_db_connection() as conn:
-            try:
-                with conn.cursor() as cursor:
-                    if home_team != 'Unknown' and away_team != 'Unknown':
-                        query = """
-                        SELECT event_id
-                        FROM e_events
-                        WHERE (date AT TIME ZONE 'America/New_York')::date = %s::date
-                            AND home_team_normalized = %s
-                            AND away_team_normalized = %s
-                        """
-                        cursor.execute(query, (date_obj, home_team, away_team))
-                    else:
-                        team_column = 'home_team_normalized' if home_team != 'Unknown' else 'away_team_normalized'
-                        team_value = home_team if home_team != 'Unknown' else away_team
-                        query = f"""
-                        SELECT event_id
-                        FROM e_events
-                        WHERE (date AT TIME ZONE 'America/New_York')::date = %s::date
-                            AND {team_column} = %s
-                        """
-                        cursor.execute(query, (date_obj, team_value))
+        if home_team != 'Unknown' and away_team != 'Unknown':
+            select_query = """
+            SELECT event_id
+            FROM e_events
+            WHERE (date AT TIME ZONE 'America/New_York')::date = %s::date
+                AND home_team_normalized = %s
+                AND away_team_normalized = %s
+            """
+            params = (date_obj, home_team, away_team)
+        else:
+            team_column = 'home_team_normalized' if home_team != 'Unknown' else 'away_team_normalized'
+            team_value = home_team if home_team != 'Unknown' else away_team
+            select_query = f"""
+            SELECT event_id
+            FROM e_events
+            WHERE (date AT TIME ZONE 'America/New_York')::date = %s::date
+                AND {team_column} = %s
+            """
+            params = (date_obj, team_value)
+        
+        result = self.execute_query(None, select_query, params)
+        event_id = result[0] if result else None
+        return event_id
 
-                    result = cursor.fetchone()
-                    event_id = result[0] if result else None
-                    conn.commit()
-                    return event_id
-            except psycopg2.Error as e:
-                logger.error(f"SQL Error when retrieving event id for date {date_obj}, home team {home_team}, away team {away_team}:\n{e}")
-                return None
-
-    @staticmethod
-    def update_audio_file(video_file: Dict[str, Dict[str, str]]) -> bool:
+    def update_audio_file(self, video_file: Dict[str, Dict[str, str]]) -> bool:
         """
         Updates or inserts audio file metadata into the database.
 
@@ -615,119 +562,97 @@ class DatabaseOperations:
 
         Returns:
             True if the operation is successful, False otherwise.
-
-        Raises:
-            psycopg2.Error: If a database error occurs during the operation.
-            Exception: For any unexpected errors.
         """
-        with DatabaseOperations.get_db_connection() as conn:
-            try:
-                query = """
-                INSERT INTO yt_video_file (video_id, a_format_id, file_size, local_path)
-                VALUES (
-                %s, %s, %s, %s
-                ) ON CONFLICT (video_id, a_format_id) DO UPDATE SET
-                a_format_id = EXCLUDED.a_format_id,
-                file_size = EXCLUDED.file_size,
-                local_path = EXCLUDED.local_path
-                """
-                with conn.cursor() as cursor:
-                    logger.debug("[Video] [DB] Starting to process video_file dictionary.")
-                    for video_id, metadata in video_file.items():
-                        logger.debug(f"[Video {video_id}] [DB] Processing video_id: {video_id} with metadata: {metadata}")
+        insert_query = """
+        INSERT INTO yt_video_file (video_id, a_format_id, file_size, local_path)
+        VALUES (
+        %s, %s, %s, %s
+        ) ON CONFLICT (video_id, a_format_id) DO UPDATE SET
+        a_format_id = EXCLUDED.a_format_id,
+        file_size = EXCLUDED.file_size,
+        local_path = EXCLUDED.local_path
+        """
 
-                        if not isinstance(metadata, dict):
-                            logger.error(f"[Video {video_id}] [DB] Metadata for video_id {video_id} is not a dictionary: {metadata}")
-                            continue
+        logger.debug("[Video] [DB] Starting to process video_file dictionary.")
+        for video_id, metadata in video_file.items():
+            logger.debug(f"[Video {video_id}] [DB] Processing video_id: {video_id} with metadata: {metadata}")
 
-                        a_format_id = metadata.get('a_format_id')
-                        file_size = metadata.get('file_size')
-                        local_path = metadata.get('local_path')
+            if not isinstance(metadata, dict):
+                logger.error(f"[Video {video_id}] [DB] Metadata for video_id {video_id} is not a dictionary: {metadata}")
+                continue
 
-                        if a_format_id is None or file_size is None or local_path is None:
-                            logger.error(f"[Video {video_id}] [DB] Missing required metadata for video_id {video_id}: {metadata}")
-                            continue
+            a_format_id = metadata.get('a_format_id')
+            file_size = metadata.get('file_size')
+            local_path = metadata.get('local_path')
 
-                        logger.debug(f"[Video {video_id}] [DB] Executing query with values: {video_id}, {a_format_id}, {file_size}, {local_path}")
-                        cursor.execute(query, (video_id, a_format_id, file_size, local_path))
-                conn.commit()
-                logger.info("[Video] [DB] Successfully inserted/updated audio file metadata.")
-                return True
+            if a_format_id is None or file_size is None or local_path is None:
+                logger.error(f"[Video {video_id}] [DB] Missing required metadata for video_id {video_id}: {metadata}")
+                continue
 
-            except psycopg2.Error as e:
-                logger.error(f"[Video {video_id}] [DB] SQL Error occurred while inserting audio file metadata: {e}")
-                conn.rollback()
+            logger.debug(f"[Video {video_id}] [DB] Executing query with values: {video_id}, {a_format_id}, {file_size}, {local_path}")
+
+            params = (video_id, a_format_id, file_size, local_path)
+            result = self.execute_query(None, insert_query, params, operation='commit')
+            if result is None:
+                logger.error(f"[Video {video_id}] [DB] Failed to insert/update audio file metadata.")
                 return False
+            else: 
+                logger.debug(f"[Video {video_id}] [DB] Successfully inserted/updated audio file metadata.")
+        return True
 
-            except Exception as e:
-                logger.error(f"[Video {video_id}] [DB] Unexpected error occurred while inserting audio file metadata: {e}")
-                conn.rollback()
-                return False
-
-    @staticmethod
-    async def get_video_ids_without_files() -> List[str]:
+    def get_video_ids_without_files(self) -> List[str]:
         """
         Retrieves a list of video IDs that lack associated video files.
 
         Returns:
             A list of video IDs that meet the specified criteria.
-
-        Raises:
-            psycopg2.Error: If a database error occurs during retrieval.
         """
         video_ids = []
 
-        with DatabaseOperations.get_db_connection() as conn:
-            try:
-                with conn.cursor() as cursor:
-                    query = """
-                    SELECT m.video_id
-                    FROM yt_metadata m
-                    LEFT JOIN yt_video_file vf ON m.video_id = vf.video_id
-                    WHERE TRUE
-                        AND m.video_id IN (
-                            SELECT DISTINCT video_id
-                            FROM yt_tags
-                            WHERE TRUE
-                                AND (
-                                    lower(tag) ILIKE '%major league%'
-                                    OR lower(tag) ILIKE '%mlb%'
-                                    OR lower(tag) ILIKE '%baseball%'
-                                    OR lower(tag) ILIKE '%alcs%'
-                                    OR lower(tag) ILIKE '%nlcs%'
-                                    OR lower(tag) ILIKE '%world series%'
-                                )
-                                AND lower(tag) NOT ILIKE '%ncaa%'
-                        )
-                    AND lower(m.title) NOT ILIKE '%draft%'
-                    AND lower(m.title) NOT ILIKE '%ncaa%'
-                    AND lower(m.title) NOT ILIKE '%mls%'
-                    AND lower(m.title) NOT ILIKE '%nfl%'
-                    AND lower(m.title) NOT ILIKE '%nba%'
-                    AND lower(m.title) NOT ILIKE '%college%'
-                    AND lower(m.title) NOT ILIKE '%cws%'
-                    AND lower(m.title) NOT ILIKE '%topgolf%'
-                    AND lower(m.title) NOT ILIKE '%futures%'
-                    AND lower(m.title) NOT ILIKE '%all star game%'
-                    AND lower(m.title) NOT ILIKE '%all-star game%'
-                    AND lower(m.title) NOT ILIKE '%wbc%'
-                    AND lower(m.title) NOT ILIKE '%world baseball%'
-                    AND lower(m.title) NOT ILIKE '%derby%'
-                    AND lower(m.title) NOT ILIKE '%softball%'
-                    AND lower(m.title) NOT ILIKE '%mlb the show%'
-                    AND lower(m.title) NOT ILIKE '%interview%'
-                    AND lower(m.title) NOT ILIKE '%makeup%'
-                    AND lower(m.title) NOT ILIKE '%ballpark zen%'
-                    AND lower(m.title) NOT ILIKE '%check out%'
-                    AND lower(m.title) NOT ILIKE '%breaks down%'
-                    AND m.duration >= interval '1 hour 15 minutes'
-                    AND vf.video_id IS NULL
-                    """
-                    cursor.execute(query)
-                    result = cursor.fetchall()
-                    video_ids = [row[0] for row in result]
-                conn.commit()
-            except psycopg2.Error as e:
-                logger.error(f"An error occurred while retrieving video IDs without files: {e}")
-                return []
+        query = """
+        SELECT m.video_id
+        FROM yt_metadata m
+        LEFT JOIN yt_video_file vf ON m.video_id = vf.video_id
+        WHERE TRUE
+            AND m.video_id IN (
+                SELECT DISTINCT video_id
+                FROM yt_tags
+                WHERE TRUE
+                    AND (
+                        lower(tag) ILIKE '%major league%'
+                        OR lower(tag) ILIKE '%mlb%'
+                        OR lower(tag) ILIKE '%baseball%'
+                        OR lower(tag) ILIKE '%alcs%'
+                        OR lower(tag) ILIKE '%nlcs%'
+                        OR lower(tag) ILIKE '%world series%'
+                    )
+                    AND lower(tag) NOT ILIKE '%ncaa%'
+            )
+        AND lower(m.title) NOT ILIKE '%draft%'
+        AND lower(m.title) NOT ILIKE '%ncaa%'
+        AND lower(m.title) NOT ILIKE '%mls%'
+        AND lower(m.title) NOT ILIKE '%nfl%'
+        AND lower(m.title) NOT ILIKE '%nba%'
+        AND lower(m.title) NOT ILIKE '%college%'
+        AND lower(m.title) NOT ILIKE '%cws%'
+        AND lower(m.title) NOT ILIKE '%topgolf%'
+        AND lower(m.title) NOT ILIKE '%futures%'
+        AND lower(m.title) NOT ILIKE '%all star game%'
+        AND lower(m.title) NOT ILIKE '%all-star game%'
+        AND lower(m.title) NOT ILIKE '%wbc%'
+        AND lower(m.title) NOT ILIKE '%world baseball%'
+        AND lower(m.title) NOT ILIKE '%derby%'
+        AND lower(m.title) NOT ILIKE '%softball%'
+        AND lower(m.title) NOT ILIKE '%mlb the show%'
+        AND lower(m.title) NOT ILIKE '%interview%'
+        AND lower(m.title) NOT ILIKE '%makeup%'
+        AND lower(m.title) NOT ILIKE '%ballpark zen%'
+        AND lower(m.title) NOT ILIKE '%check out%'
+        AND lower(m.title) NOT ILIKE '%breaks down%'
+        AND m.duration >= interval '1 hour 15 minutes'
+        AND vf.video_id IS NULL
+        """
+
+        params = ()
+        video_ids = self.execute_query(None, query, params)
         return video_ids

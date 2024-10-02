@@ -335,8 +335,8 @@ async def worker_video_ids(queue_manager: QueueManager):
             # Insert collected video IDs into the database
             if video_ids_batch:
                 logger.info(f"process_video_id attempting to insert {len(video_ids_batch)} videos")
-                await DatabaseOperations.insert_video_ids(video_ids_batch)
-                logger.info(f"Currrent count of videos to be processed: {await DatabaseOperations.get_count_videos_to_be_processed()}")
+                DatabaseOperations.insert_video_ids(video_ids_batch)
+                logger.info(f"Currrent count of videos to be processed: {DatabaseOperations.get_count_videos_to_be_processed()}")
 
         except Exception as e:
             logger.error(f"Error processing {len(video_ids_batch)} videos {video_ids_batch}: {e}")

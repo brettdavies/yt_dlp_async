@@ -48,7 +48,7 @@ class EventFetcher:
         self.date_stub = await Utils.normalize_date_stub(date_stub)
         self.url = f"{self.BASE_URL}?limit={self.LIMIT}&dates={self.date_stub}"
         logger.debug(f"Setting up EventFetcher with date_stub: {self.date_stub}")
-        self.already_loaded = await DatabaseOperations.check_if_existing_e_events_by_date(self.date_stub)
+        self.already_loaded = DatabaseOperations.check_if_existing_e_events_by_date(self.date_stub)
         logger.debug(f"Data already loaded: {self.already_loaded}")
 
     async def fetch_data(self) -> Optional[Dict]:
@@ -142,7 +142,7 @@ class EventFetcher:
         Args:
             dataframe: A pandas DataFrame containing events data to be saved.
         """
-        await DatabaseOperations.save_events(dataframe)
+        DatabaseOperations.save_events(dataframe)
 
     async def run(self, date_stub:str) -> None:
         """

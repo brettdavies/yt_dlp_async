@@ -157,7 +157,7 @@ class Fetcher:
                 logger.info(f"Processing existing videos in directory: {existing_videos_dir}")
                 await VideoFileOperations.identify_video_files(existing_videos_dir)
             
-            video_ids: List[str] = await DatabaseOperations.get_video_ids_without_files()
+            video_ids: List[str] = DatabaseOperations.get_video_ids_without_files()
             for video_id in video_ids:
                 await self.queue_manager.video_file_queue.put(video_id)
             logger.info(f"Size of video_file_queue after put: {self.queue_manager.video_file_queue.qsize()}")

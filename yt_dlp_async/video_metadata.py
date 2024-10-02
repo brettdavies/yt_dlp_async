@@ -101,7 +101,7 @@ class VideoIdOperations:
                             if problematic_ids:
                                 # Handle problematic video IDs after returning the successful data
                                 logger.info(f"[Worker {worker_id}] Found problematic video IDs: {problematic_ids}")
-                                await DatabaseOperations.set_video_id_failed_metadata_true(problematic_ids)
+                                DatabaseOperations.set_video_id_failed_metadata_true(problematic_ids)
                             return items
                     elif response.status == 403:
                             reason = data.get('error', {}).get('errors', [{}])[0].get('reason', 'unknown')
@@ -218,7 +218,7 @@ async def worker_retrieve_metadata(queue_manager: QueueManager, shutdown_event: 
             queue_manager.active_tasks['retrieve'] += 1
 
             if not is_quota_exceeded:
-                video_ids: List[str] = await DatabaseOperations.get_video_ids_without_metadata()
+                video_ids: List[str] = DatabaseOperations.get_video_ids_without_metadata()
                 logger.info(f"[Worker {worker_id}] {len(video_ids)} video_ids")
                 logger.debug(f"[Worker {worker_id}] {video_ids}")
                 if video_ids:
@@ -257,7 +257,7 @@ async def worker_save_metadata(queue_manager: QueueManager, shutdown_event: asyn
             if queue_manager.metadata_queue.qsize() > 0:
                 meta_dict = await asyncio.wait_for(queue_manager.metadata_queue.get(), timeout=1)
                 logger.info(f"[Worker {worker_id}] Size of metadata_queue after get: {queue_manager.metadata_queue.qsize()}")
-                await DatabaseOperations.insert_update_video_metadata(meta_dict)
+                DatabaseOperations.insert_update_video_metadata(meta_dict)
                 queue_manager.metadata_queue.task_done()
         except asyncio.TimeoutError:
             logger.error(f"[Worker {worker_id}] asyncio.TimeoutError")

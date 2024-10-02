@@ -84,7 +84,7 @@ class Utils:
         if video_ids:
             if isinstance(video_ids, str):
                 video_ids = video_ids.replace(',', ' ').split()
-            await DatabaseOperations.insert_video_ids(video_ids)
+            DatabaseOperations.insert_video_ids(video_ids)
 
         if video_id_files:
             if isinstance(video_id_files, str):
@@ -93,11 +93,11 @@ class Utils:
                 _, file_extension = os.path.splitext(file)
                 if file_extension == '.txt':
                     logger.info(f"Attempting to insert videos from {file}")
-                    await DatabaseOperations.insert_video_ids_bulk(file)
-                    logger.info(f"Current count of videos to be processed: {await DatabaseOperations.get_count_videos_to_be_processed()}")
+                    DatabaseOperations.insert_video_ids_bulk(file)
+                    logger.info(f"Current count of videos to be processed: {DatabaseOperations.get_count_videos_to_be_processed()}")
                 elif file_extension == '.csv':
                     video_ids.extend(await Utils.read_ids_from_file(file))
-                    await DatabaseOperations.insert_video_ids(video_ids)
+                    DatabaseOperations.insert_video_ids(video_ids)
                 else:
                     logger.error(f"{file_extension.removeprefix('.').upper()} is not an accepted format. Please use TXT or CSV.")
 
