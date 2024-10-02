@@ -389,3 +389,17 @@ class Utils:
 
         # Handle cases where no known delimiter is found or the team extraction fails
         return 'unknown', 'unknown'
+    
+    @staticmethod
+    async def extract_video_info_filepath(filepath: str) -> Tuple[str, str]:
+        file_name_parts = filepath.split('{')
+        video_id = None
+        a_format_id = None
+        for part in file_name_parts:
+            if part.startswith('yt-'):
+                video_id = part.split('yt-')[1].split('}')[0]
+            if part.startswith('fid-'):
+                a_format_id = part.split('fid-')[1].split('}')[0]
+            if video_id and a_format_id:
+                break
+        return video_id, a_format_id

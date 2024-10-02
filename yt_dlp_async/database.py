@@ -1,7 +1,6 @@
 # Standard Libraries
 import os
 import datetime
-import asyncio
 import psycopg2
 from psycopg2 import pool
 from contextlib import contextmanager
@@ -436,8 +435,10 @@ class DatabaseOperations:
         """
         # Ensure the DataFrame has the required columns
         required_columns = ['event_id', 'date', 'type', 'short_name', 'home_team', 'away_team', 'home_team_normalized','away_team_normalized']
-        if not all(column in df.columns for column in required_columns):
-            raise ValueError(f"DataFrame must contain the following columns: {', '.join(required_columns)}")
+        for col in required_columns:
+            if col not in df.columns:
+                logger.error(f"Missing required column '{col}' in the DataFrame.")
+                raise ValueError(f"Missing required column '{col}' in the DataFrame.")
 
         # Extract the data to be inserted
         records = df[required_columns].values.tolist()

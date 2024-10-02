@@ -12,6 +12,7 @@ from loguru import logger
 # First Party Libraries
 from .database import DatabaseOperations
 from .logger_config import LoggerConfig
+from .utils import Utils
 
 # Configure loguru
 LOG_NAME = "file"
@@ -45,29 +46,28 @@ class VideoFileOperations:
         - None
         """
         try:
-            while not self.queue_manager.video_file_queue.empty():
-                video_id: str = await self.queue_manager.video_file_queue.get()
-                logger.info(f"Size of video_file_queue after get: {self.queue_manager.video_file_queue.qsize()}")
-                logger.info(f"[Worker {worker_id}] Starting work on video_id: {video_id}")
+            video_id: str = await self.queue_manager.video_file_queue.get()
+            logger.info(f"Size of video_file_queue after get: {self.queue_manager.video_file_queue.qsize()}")
+            logger.info(f"[Worker {worker_id}] Starting work on video_id: {video_id}")
 
-                try:
-                    logger.info(f"[Worker {worker_id}] Processing video {video_id}")
-                    cmd: List[str] = ["poetry", "run", "download-audio-file", "fetch", "--video_id", f"\"{video_id}\""]
-                    logger.debug(f"[Worker {worker_id}] Running command: {' '.join(cmd)}")
-                    process = await asyncio.create_subprocess_exec(
-                        *cmd,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE
-                    )
-                    stdout, stderr = await process.communicate()
-                    logger.debug(f"[Worker {worker_id}] Subprocess stdout\n{stdout.decode()}")
-                    logger.debug(f"[Worker {worker_id}] Subprocess stderr\n{stderr.decode()}")
-                    if process.returncode != 0:
-                        logger.error(f"[Worker {worker_id}] Error fetching video {video_id}: {stderr.decode()}")
-                        raise Exception(f"[Worker {worker_id}] Error fetching video {video_id}: {stderr.decode()}")
-                    logger.info(f"[Worker {worker_id}] Finished processing video {video_id}")
-                finally:
-                    self.queue_manager.video_file_queue.task_done()
+            try:
+                logger.info(f"[Worker {worker_id}] Processing video {video_id}")
+                cmd: List[str] = ["poetry", "run", "download-audio-file", "fetch", "--video_id", f"\"{video_id}\""]
+                logger.debug(f"[Worker {worker_id}] Running command: {' '.join(cmd)}")
+                process = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout, stderr = await process.communicate()
+                logger.debug(f"[Worker {worker_id}] Subprocess stdout\n{stdout.decode()}")
+                logger.debug(f"[Worker {worker_id}] Subprocess stderr\n{stderr.decode()}")
+                if process.returncode != 0:
+                    logger.error(f"[Worker {worker_id}] Error fetching video {video_id}: {stderr.decode()}")
+                    raise Exception(f"[Worker {worker_id}] Error fetching video {video_id}: {stderr.decode()}")
+                logger.info(f"[Worker {worker_id}] Finished processing video {video_id}")
+            finally:
+                self.queue_manager.video_file_queue.task_done()
 
         except subprocess.CalledProcessError as e:
             logger.error(f"[Worker {worker_id}] Subprocess error: {e}")
@@ -86,17 +86,7 @@ class VideoFileOperations:
                         video_file_info = {}
                         full_path = os.path.join(root, file)
                         relative_path = full_path.replace(existing_videos_dir, '')
-                        file_name_parts = file.split('{')
-                        video_id = None
-                        a_format_id = None
-                        for part in file_name_parts:
-                            if part.startswith('yt-'):
-                                video_id = part.split('yt-')[1].split('}')[0]
-                            if part.startswith('fid-'):
-                                a_format_id = part.split('fid-')[1].split('}')[0]
-                            if video_id and a_format_id:
-                                break
-
+                        video_id, a_format_id = Utils.extract_video_info_filepath(file)
                         if video_id:
                             video_file_info[video_id] = {
                                 'local_path': relative_path,
