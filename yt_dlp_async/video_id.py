@@ -9,7 +9,7 @@ import fire
 from loguru import logger
 
 # Third Party Libraries
-import yt_dlp # The yt_dlp library is not directly used in this file. It is called by a subprocess. The library needs to be installed in the python environment. Referenced here for poetry dependency checks purposes.
+import yt_dlp # The yt_dlp library is not directly used in this file. It is called by a subprocess.
 
 # First Party Libraries
 from .utils import Utils
@@ -21,6 +21,9 @@ LOG_NAME = "id"
 LoggerConfig.setup_logger(log_name=LOG_NAME)
 
 class QueueManager:
+    """
+    Manages queues and tracks active tasks for user IDs, playlist IDs, and video IDs.
+    """
     def __init__(self):
         self.user_id_queue = asyncio.Queue()
         self.playlist_id_queue = asyncio.Queue()
@@ -35,7 +38,7 @@ class Logging:
     @staticmethod
     def log_state(queue_manager: QueueManager) -> None:
         """
-        Function to log the state of queues and tasks.
+        Logs the state of queues and active tasks.
         """
         logger.info(f"user_id_queue size: {queue_manager.user_id_queue.qsize()}, active tasks: {queue_manager.active_tasks['user_id']}")
         logger.info(f"playlist_id_queue size: {queue_manager.playlist_id_queue.qsize()}, active tasks: {queue_manager.active_tasks['playlist_id']}")
@@ -43,22 +46,21 @@ class Logging:
 
 class VideoIdOperations:
     """
-    Class for performing operations related to video IDs.
-    Methods:
-    - _run_yt_dlp_command(cmd: List[str]) -> List[str]: Runs a yt-dlp command and returns the output as a list of strings.
-    - fetch_video_ids_from_url(url: str) -> List[str]: Fetches the video IDs from the given URL.
-    - fetch_playlist_ids_from_user_id(user_url: str) -> List[str]: Fetches the playlist IDs from the given user URL.
+    Provides static methods for fetching video and playlist IDs using yt-dlp.
     """
     @staticmethod
     async def _run_yt_dlp_command(cmd: List[str]) -> List[str]:
         """
-        Runs a yt-dlp command and returns the output as a list of strings.
+        Runs a yt-dlp command asynchronously and returns the output as a list of strings.
 
         Args:
             cmd (List[str]): The yt-dlp command to run.
 
         Returns:
-            List[str]: The output of the command.
+            List[str]: The output of the command, split into lines. Returns an empty list on error.
+
+        Raises:
+            None: All exceptions are caught and logged; returns an empty list on failure.
         """
         try:
             process = await asyncio.create_subprocess_exec(
@@ -83,13 +85,13 @@ class VideoIdOperations:
     @staticmethod
     async def fetch_video_ids_from_url(url: str) -> List[str]:
         """
-        Fetches the video IDs from the given URL.
+        Fetches video IDs from the given URL using yt-dlp.
 
         Args:
             url (str): The URL of the channel or playlist.
 
         Returns:
-            List[str]: A list of video IDs.
+            List[str]: A list of video IDs. Returns an empty list on error.
         """
         cmd = ["yt-dlp", "--flat-playlist", "--print", "id", url]
         return await VideoIdOperations._run_yt_dlp_command(cmd)
@@ -97,27 +99,27 @@ class VideoIdOperations:
     @staticmethod
     async def fetch_playlist_ids_from_user_id(user_url: str) -> List[str]:
         """
-        Fetches the playlist IDs from the given user URL.
+        Fetches playlist IDs associated with a user's channel URL using yt-dlp.
 
         Args:
             user_url (str): The URL of the user's channel.
 
         Returns:
-            List[str]: A list of playlist IDs.
+            List[str]: A list of playlist IDs. Returns an empty list on error.
         """
         cmd = ["yt-dlp", "--flat-playlist", "--print", "%(id)s", user_url]
         return await VideoIdOperations._run_yt_dlp_command(cmd)
 
 @dataclass(slots=True)
 class Fetcher:
+    """
+    Coordinates fetching and processing of video IDs, playlist IDs, and user IDs.
+    """
     queue_manager: QueueManager
 
     def __init__(self):
         """
-        Initializes the Fetcher with a QueueManager instance.
-
-        Args:
-            queue_manager (QueueManager): An instance of QueueManager to manage queues.
+        Initializes the Fetcher with a new QueueManager instance.
         """
         # Instantiate QueueManager
         self.queue_manager = QueueManager()
@@ -133,7 +135,7 @@ class Fetcher:
         num_workers: int = 5,
     ) -> None:
         """
-        Fetches video IDs, playlist IDs, and user IDs from various sources.
+        Fetches video IDs, playlist IDs, and user IDs from various sources and starts worker tasks.
 
         Args:
             video_ids (Optional[List[str]]): A list of video IDs.
@@ -188,7 +190,7 @@ class Fetcher:
         Args:
             ids (Optional[List[str]]): A list of IDs.
             id_files (Optional[List[str]]): A list of file paths containing IDs.
-            queue_manager (QueueManager): The queue to add video IDs to.
+            queue (asyncio.Queue): The queue to add IDs to.
             read_func (Callable): Function to read IDs from files.
 
         Returns:
@@ -210,7 +212,13 @@ class Fetcher:
 
 async def worker_user_ids(queue_manager: QueueManager):
     """
-    Worker task for processing user IDs.
+    Processes user IDs from the queue, fetching associated playlists and videos.
+
+    Args:
+        queue_manager (QueueManager): Manages the queues and tracks active tasks.
+
+    Returns:
+        None
     """
     while True:
         if queue_manager.user_id_queue.empty() and queue_manager.active_tasks['user_id'] == 0:
@@ -254,7 +262,13 @@ async def worker_user_ids(queue_manager: QueueManager):
 
 async def worker_playlist_ids(queue_manager: QueueManager):
     """
-    Worker task for processing playlist IDs.
+    Processes playlist IDs from the queue, fetching associated video IDs.
+
+    Args:
+        queue_manager (QueueManager): Manages the queues and tracks active tasks.
+
+    Returns:
+        None
     """
     while True:
         if queue_manager.user_id_queue.empty() and queue_manager.playlist_id_queue.empty() and (queue_manager.active_tasks['user_id'] + queue_manager.active_tasks['playlist_id']) == 0:
@@ -293,7 +307,13 @@ async def worker_playlist_ids(queue_manager: QueueManager):
 
 async def worker_video_ids(queue_manager: QueueManager):
     """
-    Worker task for processing video IDs.
+    Processes video IDs from the queue, inserting them into the database.
+
+    Args:
+        queue_manager (QueueManager): Manages the queues and tracks active tasks.
+
+    Returns:
+        None
     """
     while True:
         if queue_manager.user_id_queue.empty() and queue_manager.playlist_id_queue.empty() and queue_manager.video_id_queue.empty() and (queue_manager.active_tasks['user_id'] + queue_manager.active_tasks['playlist_id'] + queue_manager.active_tasks['video_id']) == 0:

@@ -1,11 +1,24 @@
--- """ Youtube related databse objects """
--- Create the videos_to_be_processed table
+-- ================================================
+-- Database Schema for YouTube and ESPN Data Storage
+-- ================================================
+
+-- ================================================
+-- 1. YouTube-related Database Objects
+-- ================================================
+
+-- -----------------------------------------------
+-- 1.1. Tables
+-- -----------------------------------------------
+
+-- 1.1.1. Table: yt_videos_to_be_processed
+-- Stores YouTube video IDs that need to be processed for metadata.
 CREATE TABLE yt_videos_to_be_processed (
     video_id VARCHAR(255) PRIMARY KEY,
-    has_failed_metadata BOOLEAN DEFAULT FALSE,
+    has_failed_metadata BOOLEAN DEFAULT FALSE
 );
 
--- Create the yt_metadata table
+-- 1.1.2. Table: yt_metadata
+-- Stores metadata for YouTube videos.
 CREATE TABLE yt_metadata (
     video_id VARCHAR(255) PRIMARY KEY,
     kind VARCHAR(50),
@@ -42,7 +55,8 @@ CREATE TABLE yt_metadata (
     deleted_at TIMESTAMP WITH TIME ZONE
 );
 
--- Create the yt_topic_categories table
+-- 1.1.3. Table: yt_tags
+-- Stores tags associated with YouTube videos.
 CREATE TABLE yt_tags (
     tag_id SERIAL PRIMARY KEY,
     video_id VARCHAR(255) NOT NULL,
@@ -51,11 +65,11 @@ CREATE TABLE yt_tags (
     modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     deleted_at TIMESTAMP WITH TIME ZONE,
     FOREIGN KEY (video_id) REFERENCES yt_metadata(video_id),
-    CONSTRAINT unique_video_tags UNIQUE (video_id, tag)  -- Unique constraint
+    CONSTRAINT unique_video_tags UNIQUE (video_id, tag)
 );
 
-
--- Create the yt_thumbnails table
+-- 1.1.4. Table: yt_thumbnails
+-- Stores thumbnail information for YouTube videos.
 CREATE TABLE yt_thumbnails (
     thumbnail_id SERIAL PRIMARY KEY,
     video_id VARCHAR(255) NOT NULL,
@@ -67,10 +81,11 @@ CREATE TABLE yt_thumbnails (
     modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     deleted_at TIMESTAMP WITH TIME ZONE,
     FOREIGN KEY (video_id) REFERENCES yt_metadata(video_id),
-    CONSTRAINT unique_video_thumbnails UNIQUE (video_id, thumbnail_size)  -- Unique constraint
+    CONSTRAINT unique_video_thumbnails UNIQUE (video_id, thumbnail_size)
 );
 
--- Create the yt_localized_info table
+-- 1.1.5. Table: yt_localized_info
+-- Stores localized titles and descriptions for YouTube videos.
 CREATE TABLE yt_localized_info (
     localized_id SERIAL PRIMARY KEY,
     video_id VARCHAR(255) NOT NULL,
@@ -81,10 +96,11 @@ CREATE TABLE yt_localized_info (
     modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     deleted_at TIMESTAMP WITH TIME ZONE,
     FOREIGN KEY (video_id) REFERENCES yt_metadata(video_id),
-    CONSTRAINT unique_video_localized UNIQUE (video_id, language)  -- Unique constraint
+    CONSTRAINT unique_video_localized UNIQUE (video_id, language)
 );
 
--- Create the yt_topic_categories table
+-- 1.1.6. Table: yt_topic_categories
+-- Stores topic categories associated with YouTube videos.
 CREATE TABLE yt_topic_categories (
     topic_id SERIAL PRIMARY KEY,
     video_id VARCHAR(255) NOT NULL,
@@ -93,50 +109,11 @@ CREATE TABLE yt_topic_categories (
     modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     deleted_at TIMESTAMP WITH TIME ZONE,
     FOREIGN KEY (video_id) REFERENCES yt_metadata(video_id),
-    CONSTRAINT unique_video_topic_categories UNIQUE (video_id, category)  -- Unique constraint
+    CONSTRAINT unique_video_topic_categories UNIQUE (video_id, category)
 );
 
--- Create the yt_content_rating table
-CREATE TABLE yt_content_rating (
-    rating_id SERIAL PRIMARY KEY,
-    video_id VARCHAR(255) NOT NULL,
-    rating_type VARCHAR(50),
-    rating_value VARCHAR(50),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    deleted_at TIMESTAMP WITH TIME ZONE,
-    FOREIGN KEY (video_id) REFERENCES yt_metadata(video_id),
-    CONSTRAINT unique_video_rating UNIQUE (video_id, rating_type)  -- Unique constraint
-);
-
--- Create the yt_recording_details table
-CREATE TABLE yt_recording_details (
-    recording_id SERIAL PRIMARY KEY,
-    video_id VARCHAR(255) NOT NULL,
-    recording_date DATE,
-    recording_location TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    deleted_at TIMESTAMP WITH TIME ZONE,
-    FOREIGN KEY (video_id) REFERENCES yt_metadata(video_id),
-    CONSTRAINT unique_video_recording_details UNIQUE (video_id, recording_date, recording_location)  -- Unique constraint
-);
-
--- Create the yt_transcripts table
-CREATE TABLE yt_transcripts (
-    transcript_id SERIAL PRIMARY KEY,
-    video_id VARCHAR(255) NOT NULL,
-    transcript_text TEXT,
-    language VARCHAR(10),
-    is_auto_generated BOOLEAN,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    deleted_at TIMESTAMP WITH TIME ZONE,
-    FOREIGN KEY (video_id) REFERENCES yt_metadata(video_id),
-    CONSTRAINT unique_video_transcripts UNIQUE (video_id, language)  -- Unique constraint
-);
-
--- Create the video_file table
+-- 1.1.9. Table: yt_video_file
+-- Stores information about downloaded video files.
 CREATE TABLE yt_video_file (
     video_file_id SERIAL PRIMARY KEY,
     video_id VARCHAR(255),
@@ -147,32 +124,45 @@ CREATE TABLE yt_video_file (
     modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     deleted_at TIMESTAMP WITH TIME ZONE,
     FOREIGN KEY (video_id) REFERENCES yt_metadata(video_id),
-    CONSTRAINT unique_video_file UNIQUE (video_id, a_format_id)  -- Unique constraint
+    CONSTRAINT unique_video_file UNIQUE (video_id, a_format_id)
 );
 
--- Create indexes
+-- -----------------------------------------------
+-- 1.2. Indexes
+-- -----------------------------------------------
+
+-- Indexes for yt_metadata
 CREATE INDEX idx_yt_metadata_published_at ON yt_metadata(published_at);
-CREATE INDEX idx_yt_etadata_channel_id ON yt_metadata(channel_id);
+CREATE INDEX idx_yt_metadata_channel_id ON yt_metadata(channel_id);
+
+-- Indexes for yt_tags
 CREATE INDEX idx_yt_tags_video_id ON yt_tags(video_id);
+
+-- Indexes for yt_thumbnails
 CREATE INDEX idx_yt_thumbnails_video_id ON yt_thumbnails(video_id);
+
+-- Indexes for yt_localized_info
 CREATE INDEX idx_yt_localized_info_video_id ON yt_localized_info(video_id);
+
+-- Indexes for yt_topic_categories
 CREATE INDEX idx_yt_topic_categories_video_id ON yt_topic_categories(video_id);
-CREATE INDEX idx_yt_content_rating_video_id ON yt_content_rating(video_id);
-CREATE INDEX idx_yt_recording_details_video_id ON yt_recording_details(video_id);
-CREATE INDEX idx_yt_transcripts_video_id ON yt_transcripts(video_id);
+
+-- Indexes for yt_video_file
 CREATE INDEX idx_yt_video_file_video_id ON yt_video_file(video_id);
 
--- Create custom contstraint indexes
-CREATE UNIQUE INDEX yt_tags_video_id_category_key ON yt_tags(video_id, tag);  -- Ensuring uniqueness for (video_id, category)
-CREATE UNIQUE INDEX yt_thumbnails_video_id_size_key ON yt_thumbnails(video_id, thumbnail_size);  -- Ensuring uniqueness for (video_id, thumbnail_size)
-CREATE UNIQUE INDEX yt_localized_video_id_language_key ON yt_localized_info(video_id, language);  -- Ensuring uniqueness for (video_id, language)
-CREATE UNIQUE INDEX yt_topic_categories_video_id_category_key ON yt_topic_categories(video_id, category);  -- Ensuring uniqueness for (video_id, category)
-CREATE UNIQUE INDEX yt_content_rating_video_id_rating_key ON yt_content_rating(video_id, rating_type);  -- Ensuring uniqueness for (video_id, rating_type)
-CREATE UNIQUE INDEX yt_recording_details_video_id_key ON yt_recording_details(video_id, recording_date, recording_location);  -- Ensuring uniqueness for (video_id, recording_date, recording_location)
-CREATE UNIQUE INDEX yt_transcripts_video_id_language_key ON yt_transcripts(video_id, language);  -- Ensuring uniqueness for (video_id, language)
-CREATE UNIQUE INDEX yt_transcripts_video_id_format_key ON yt_transcripts(video_id, a_format_id);  -- Ensuring uniqueness for (video_id, a_format_id)
+-- Unique indexes to enforce constraints
+CREATE UNIQUE INDEX yt_tags_video_id_tag_key ON yt_tags(video_id, tag);
+CREATE UNIQUE INDEX yt_thumbnails_video_id_size_key ON yt_thumbnails(video_id, thumbnail_size);
+CREATE UNIQUE INDEX yt_localized_video_id_language_key ON yt_localized_info(video_id, language);
+CREATE UNIQUE INDEX yt_topic_categories_video_id_category_key ON yt_topic_categories(video_id, category);
+CREATE UNIQUE INDEX yt_video_file_video_id_format_key ON yt_video_file(video_id, a_format_id);
 
--- Trigger function to update modified_at column
+-- -----------------------------------------------
+-- 1.3. Functions and Triggers
+-- -----------------------------------------------
+
+-- 1.3.1. Function: update_modified_at_column
+-- Updates the 'modified_at' column to the current timestamp before a row is updated.
 CREATE OR REPLACE FUNCTION update_modified_at_column()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -181,7 +171,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Trigger to call the update modified_at function on update
+-- Triggers to update 'modified_at' before updating records in tables
 CREATE TRIGGER update_yt_metadata_modified_at
 BEFORE UPDATE ON yt_metadata
 FOR EACH ROW
@@ -207,31 +197,23 @@ BEFORE UPDATE ON yt_topic_categories
 FOR EACH ROW
 EXECUTE FUNCTION update_modified_at_column();
 
-CREATE TRIGGER update_yt_content_rating_modified_at
-BEFORE UPDATE ON yt_content_rating
-FOR EACH ROW
-EXECUTE FUNCTION update_modified_at_column();
-
-CREATE TRIGGER update_yt_recording_details_modified_at
-BEFORE UPDATE ON yt_recording_details
-FOR EACH ROW
-EXECUTE FUNCTION update_modified_at_column();
-
-CREATE TRIGGER update_yt_transcripts_video_modified_at
-BEFORE UPDATE ON yt_transcripts
-FOR EACH ROW
-EXECUTE FUNCTION update_modified_at_column();
-
 CREATE TRIGGER update_yt_video_file_modified_at
 BEFORE UPDATE ON yt_video_file
 FOR EACH ROW
 EXECUTE FUNCTION update_modified_at_column();
 
--- Trigger function to propagate soft delete to related tables
+-- 1.3.2. Function: propagate_soft_delete_to_related_tables
+-- Propagates a soft delete to related tables when a video is soft-deleted.
 CREATE OR REPLACE FUNCTION propagate_soft_delete_to_related_tables()
 RETURNS TRIGGER AS $$
 DECLARE
-    tables TEXT[] := ARRAY['yt_tags', 'yt_thumbnails', 'yt_localized_info', 'yt_topic_categories', 'yt_content_rating', 'yt_recording_details', 'yt_transcripts', 'yt_video_file'];
+    tables TEXT[] := ARRAY[
+        'yt_tags',
+        'yt_thumbnails',
+        'yt_localized_info',
+        'yt_topic_categories',
+        'yt_video_file'
+    ];
     table_name TEXT;
 BEGIN
     IF NEW.deleted_at IS NOT NULL THEN
@@ -244,30 +226,40 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Trigger to call the soft delete function on update
+-- Trigger: propagate soft delete on yt_metadata
 CREATE TRIGGER propagate_yt_metadata_soft_delete
 AFTER UPDATE ON yt_metadata
 FOR EACH ROW
 WHEN (OLD.deleted_at IS NULL AND NEW.deleted_at IS NOT NULL)
 EXECUTE FUNCTION propagate_soft_delete_to_related_tables();
 
--- Trigger function to remove video_id from videos_to_be_processed
-CREATE OR REPLACE FUNCTION delete_from_yt_videos_to_be_processed() RETURNS TRIGGER AS $$
+-- 1.3.3. Function: delete_from_yt_videos_to_be_processed
+-- Removes a video ID from 'yt_videos_to_be_processed' after it has been inserted into 'yt_metadata'.
+CREATE OR REPLACE FUNCTION delete_from_yt_videos_to_be_processed()
+RETURNS TRIGGER AS $$
 BEGIN
     DELETE FROM yt_videos_to_be_processed WHERE video_id = NEW.video_id;
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
--- Trigger to call the delete function on insert
+-- Trigger: after insert on yt_metadata
+-- Calls 'delete_from_yt_videos_to_be_processed' after a video is inserted into 'yt_metadata'.
 CREATE TRIGGER after_yt_metadata_insert
 AFTER INSERT ON yt_metadata
 FOR EACH ROW
 EXECUTE FUNCTION delete_from_yt_videos_to_be_processed();
 
+-- ================================================
+-- 2. ESPN-related Database Objects
+-- ================================================
 
--- """ ESPN related databse objects """
--- Create the topic_categories table
+-- -----------------------------------------------
+-- 2.1. Tables
+-- -----------------------------------------------
+
+-- 2.1.1. Table: e_events
+-- Stores event information from ESPN.
 CREATE TABLE e_events (
     event_id VARCHAR(20) PRIMARY KEY,
     date TIMESTAMP WITH TIME ZONE,
@@ -275,22 +267,28 @@ CREATE TABLE e_events (
     short_name VARCHAR(12),
     home_team VARCHAR(7),
     away_team VARCHAR(7),
-    home_team_normalized character varying(7),
-    away_team_normalized character varying(7),
+    home_team_normalized VARCHAR(7),
+    away_team_normalized VARCHAR(7),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     deleted_at TIMESTAMP WITH TIME ZONE,
-    CONSTRAINT unique_e_events UNIQUE (event_id)  -- Unique constraint
+    CONSTRAINT unique_e_events UNIQUE (event_id)
 );
 
--- Trigger to call the update modified_at function on update
+-- -----------------------------------------------
+-- 2.2. Functions and Triggers
+-- -----------------------------------------------
+
+-- Trigger: update 'modified_at' on e_events before update
 CREATE TRIGGER update_e_events_modified_at
 BEFORE UPDATE ON e_events
 FOR EACH ROW
 EXECUTE FUNCTION update_modified_at_column();
 
+-- ================================================
+-- 3. Permissions
+-- ================================================
 
--- """ Final global permissioning """
 -- Grant necessary permissions (adjust as needed)
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO itguy;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO itguy;

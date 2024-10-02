@@ -46,9 +46,6 @@ class QueueManager:
 class Logging:
     @staticmethod
     def log_state(queue_manager: QueueManager) -> None:
-        """
-        Logs the state of queues and tasks.
-        """
         logger.info(f"metadata_queue size: {queue_manager.metadata_queue.qsize()}, active tasks: {queue_manager.active_tasks['video_id']}")
 
 class VideoIdOperations:
@@ -57,7 +54,7 @@ class VideoIdOperations:
     """
     def __init__(self, queue_manager: QueueManager):
         """
-        Initializes the Fetcher with a QueueManager instance.
+        Initializes the VideoIdOperations with a QueueManager instance.
 
         Args:
             queue_manager (QueueManager): An instance of QueueManager to manage queues.
@@ -67,21 +64,25 @@ class VideoIdOperations:
     @staticmethod
     async def fetch_video_metadata(video_ids: List[str], worker_id: str) -> List[Dict[str, Any]]:
         """
-        Function to fetch video metadata from the YouTube Data API.
+        Fetches video metadata from the YouTube Data API.
 
         Args:
             video_ids (List[str]): List of video IDs to fetch metadata for.
-            worker_id (str): ID of the worker executing the function.
+            worker_id (str): Identifier for the worker instance.
 
         Returns:
-            List[Dict[str, Any]]: List of dictionaries containing the fetched metadata for each video ID.
+            List[Dict[str, Any]]: A list of dictionaries containing metadata for each video ID.
+
+        Raises:
+            aiohttp.ClientError: If an error occurs during the HTTP request.
+            Exception: For other unexpected errors.
         """
         global is_quota_exceeded
         
         video_ids_str = ",".join(video_ids)
         url = f"https://www.googleapis.com/youtube/v3/videos?part=contentDetails,id,liveStreamingDetails,localizations,player,recordingDetails,snippet,statistics,status,topicDetails&id={video_ids_str}&key={YT_API_KEY}"
         
-        if not isQuotaExceeded:
+        if not is_quota_exceeded:
             async with aiohttp.ClientSession() as session:
                 async with session.get(url) as response:
                     logger.debug(f"[Worker {worker_id}] response:\n{response}")
@@ -107,8 +108,8 @@ class VideoIdOperations:
                             logger.error(f"[Worker {worker_id}] Reason provided: {reason}")
 
                             if reason == "quotaExceeded":
-                                logger.error(f"[Worker {worker_id}] Quota Exceeded. Setting isQuotaExceeded to True.")
-                                isQuotaExceeded = True
+                                logger.error(f"[Worker {worker_id}] Quota Exceeded. Setting is_quota_exceeded to True.")
+                                is_quota_exceeded = True
 
                     else:
                         code = data.get('error', {}).get('code', 'unknown')
@@ -120,6 +121,15 @@ class VideoIdOperations:
             return []
 
     async def populate_event_metadata_queue(queue_manager: QueueManager) -> None:
+        """
+        Populates the event metadata queue with dates that require event metadata processing.
+
+        Args:
+            queue_manager (QueueManager): The QueueManager instance to add dates to.
+
+        Returns:
+            None
+        """
         event_dates = DatabaseOperations.get_dates_no_event_metadata()
         for date_str in event_dates:
             await queue_manager.event_metadata_queue.put(date_str)
@@ -135,10 +145,7 @@ class Fetcher:
 
     def __init__(self):
         """
-        Initializes the Fetcher with a QueueManager instance.
-
-        Args:
-            queue_manager (QueueManager): An instance of QueueManager to manage queues.
+        Initializes the Fetcher with a new QueueManager and a shutdown event.
         """
         # Instantiate QueueManager
         self.queue_manager = QueueManager()
@@ -194,10 +201,15 @@ class Fetcher:
 
 async def worker_retrieve_metadata(queue_manager: QueueManager, shutdown_event: asyncio.Event, worker_id: str) -> None:
     """
-    Worker function that retrieves video metadata from the YouTube Data API.
+    Retrieves video metadata from the YouTube Data API and adds it to the metadata queue.
 
     Args:
-        worker_id (str): ID of the worker executing the function.
+        queue_manager (QueueManager): Manages the queues and active tasks.
+        shutdown_event (asyncio.Event): Event to signal when to shut down the worker.
+        worker_id (str): Identifier for the worker instance.
+
+    Returns:
+        None
     """
     global is_quota_exceeded
 
@@ -229,10 +241,15 @@ async def worker_retrieve_metadata(queue_manager: QueueManager, shutdown_event: 
 
 async def worker_save_metadata(queue_manager: QueueManager, shutdown_event: asyncio.Event, worker_id: str) -> None:
     """
-    Worker function that saves video metadata to the database.
+    Saves video metadata from the metadata queue into the database.
 
     Args:
-        worker_id (str): ID of the worker executing the function.
+        queue_manager (QueueManager): Manages the queues and active tasks.
+        shutdown_event (asyncio.Event): Event to signal when to shut down the worker.
+        worker_id (str): Identifier for the worker instance.
+
+    Returns:
+        None
     """
     while True:
         try:
@@ -255,11 +272,17 @@ async def worker_save_metadata(queue_manager: QueueManager, shutdown_event: asyn
 
 async def worker_event_metadata(queue_manager: QueueManager, worker_id: str) -> None:
     """
-    Worker function that calls an instance of the EventFetcher class.
+    Processes event metadata by retrieving dates without event metadata and running the EventFetcher.
 
     Args:
-        queue_manager (QueueManager): QueueManager that contains queues
-        worker_id (str): ID of the worker executing the function.
+        queue_manager (QueueManager): Manages the queues and active tasks.
+        worker_id (str): Identifier for the worker instance.
+
+    Returns:
+        None
+
+    Raises:
+        Exception: If an error occurs during event metadata processing.
     """
     while True:
         try:

@@ -2,17 +2,18 @@ from typing import Dict
 
 class Metadata:
     """
-    A class that contains a dictionary mapping full team names to their corresponding team abbreviations.
+    Provides mappings from team names to their standard abbreviations.
+
+    This class contains a dictionary, `team_abbreviations`, which maps various forms of
+    team names—including full names, nicknames, and abbreviations—to their standard
+    three-letter abbreviations. This is useful for normalizing team names during data processing.
 
     Attributes:
-    - team_abbreviations (Dict): A dictionary mapping full team names to team abbreviations.
+        team_abbreviations (Dict[str, str]): Dictionary mapping team names to abbreviations.
 
     Example:
-    ```
-    metadata = Metadata()
-    print(metadata.team_abbreviations['los angeles angels'])
-    # Output: 'ana'
-    ```
+        >>> print(Metadata.team_abbreviations['los angeles angels'])
+        'ana'
     """
     team_abbreviations: Dict = {
         # full team name: los angeles angels

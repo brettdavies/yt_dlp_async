@@ -19,31 +19,34 @@ LOG_NAME = "file"
 LoggerConfig.setup_logger(log_name=LOG_NAME)
 
 class QueueManager:
+    """
+    Manages the queue for video files to be processed.
+    """
     def __init__(self):
         self.video_file_queue = asyncio.Queue()
 
 class VideoFileOperations:
+    """
+    Handles operations related to video files, such as downloading and identifying existing files.
+    """
     def __init__(self, queue_manager: QueueManager):
         """
-        Initializes the Fetcher with a QueueManager instance.
+        Initializes VideoFileOperations with a QueueManager instance.
 
         Args:
-            queue_manager (QueueManager): An instance of QueueManager to manage queues.
+        queue_manager (QueueManager): An instance of QueueManager to manage queues.
         """
         self.queue_manager = queue_manager
 
     async def run_video_download(self, worker_id: str) -> None:
         """
-        Asynchronously runs the video download process.
+        Asynchronously runs the video download process for a single video ID.
 
         Args:
-        - worker_id (str): The ID of the worker.
+            worker_id (str): The ID of the worker.
 
         Raises:
-        - Exception: If there is an error fetching the video.
-
-        Returns:
-        - None
+            Exception: If there is an error fetching the video.
         """
         try:
             video_id: str = await self.queue_manager.video_file_queue.get()
@@ -77,7 +80,16 @@ class VideoFileOperations:
             logger.error(f"[Worker {worker_id}] Unexpected error: {e}")
 
     @staticmethod
-    async def identify_video_files(existing_videos_dir):
+    async def identify_video_files(existing_videos_dir) -> None:
+        """
+        Identifies existing video files in the given directory and updates the database.
+
+        Args:
+            existing_videos_dir (str): The directory containing existing video files.
+
+        Raises:
+            Exception: If an error occurs during the identification process.
+        """
         try:
             video_file_info = {}
             for root, _, files in os.walk(existing_videos_dir):
@@ -103,16 +115,18 @@ class VideoFileOperations:
 
 @dataclass(slots=True)
 class Fetcher:
+    """
+    Coordinates the fetching of video files using multiple workers.
+    """
+
     queue_manager: QueueManager
     logger: Any
 
     def __init__(self):
         """
-        Initializes the Fetcher with a QueueManager instance.
-
-        Args:
-            queue_manager (QueueManager): An instance of QueueManager to manage queues.
+        Initializes the Fetcher with a new QueueManager instance.
         """
+
         self.logger: Any = logger
         # Instantiate QueueManager
         self.queue_manager = QueueManager()
@@ -122,11 +136,14 @@ class Fetcher:
         Fetches video files using multiple workers.
 
         Args:
-        - anything (Any): Placeholder argument for compatibility.
-        - num_workers (int): The number of worker tasks to use for fetching.
+            existing_videos_dir (str, optional): Directory containing existing video files to identify.
+            num_workers (int): The number of worker tasks to use for fetching.
+
+        Raises:
+            ValueError: If num_workers is not a positive integer.
 
         Returns:
-        - None
+            None
         """
         try:
             if not isinstance(num_workers, int) or num_workers <= 0:
@@ -155,6 +172,6 @@ class Fetcher:
 
 def cmd() -> None:
     """
-    Command line interface for running the Fetcher.
+    Runs the command-line interface for the Fetcher.
     """
     fire.Fire(Fetcher())

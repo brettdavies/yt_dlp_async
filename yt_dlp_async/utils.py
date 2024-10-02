@@ -3,7 +3,7 @@ import os
 import re
 import json
 from datetime import datetime
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from dataclasses import dataclass
 
 # Logging
@@ -14,21 +14,20 @@ from .database import DatabaseOperations
 from .metadata import Metadata
 
 class Utils:
+    """
+    Utility class providing static methods for URL preparation, file reading, metadata processing, and data extraction.
+    """
     @staticmethod
     async def prep_url(id_val: str, id_type: str) -> str:
         """
-        Prepare the URL based on the given ID value and ID type.
+        Prepares a URL based on the given ID value and ID type.
 
         Args:
-            id_val (str): The ID value.
-            id_type (str): The type of ID.
+            id_val: The ID value (e.g., user ID, playlist ID).
+            id_type: The type of ID ('user', 'user_playlist', 'playlist').
 
         Returns:
-            str: The prepared URL.
-
-        Raises:
-            None
-
+            The prepared URL as a string.
         """
         if id_type == 'user':
             id_val = (f"https://www.youtube.com/@{id_val}/videos")
@@ -79,11 +78,8 @@ class Utils:
         Reads video IDs from command-line arguments and inserts them into the database.
 
         Args:
-            video_ids (List[str]): A list of video IDs provided as command-line arguments.
-            video_id_files (List[str]): A list of file paths containing video IDs.
-
-        Returns:
-            None
+            video_ids: A list of video IDs provided as command-line arguments.
+            video_id_files: A list of file paths containing video IDs.
         """
         if video_ids:
             if isinstance(video_ids, str):
@@ -109,10 +105,12 @@ class Utils:
     async def prep_metadata_dictionary(item: json) -> Dict[str, Any]:
         """
         Prepares a metadata dictionary from the given JSON item.
+
         Args:
-            item (json): The JSON item containing the metadata.
+            item: The JSON item containing the metadata.
+
         Returns:
-            Dict[str, Any]: The prepared metadata dictionary.
+            A dictionary containing the prepared metadata.
         """
         metadata = {
             'video_id': item.get('id', ''),
@@ -169,7 +167,18 @@ class Utils:
         return metadata
 
     @staticmethod
-    def extract_date(text: str) -> datetime:
+    def extract_date(text: str) -> Optional[datetime]:
+        """
+        Extracts a date from the given text string.
+
+        Attempts to find a date in various formats within the text.
+
+        Args:
+            text: The text from which to extract the date.
+
+        Returns:
+            A datetime object if a date is found, otherwise None.
+        """
         # Extract date in MM.DD.YYYY format
         date_match = re.search(r'(\d{1,2}\.\d{1,2}\.\d{4})', text)
         if date_match:
@@ -285,11 +294,14 @@ class Utils:
     @staticmethod
     async def normalize_date_stub(date_stub: str) -> str:
         """
-        Normalize the date stub to the format '%Y%m%d'.
+        Normalizes a date stub to the format '%Y%m%d'.
+
         Args:
-            date_stub (str): The date stub in various formats.
+            date_stub: The date stub in various formats.
+
         Returns:
-            str: The normalized date stub.
+            The normalized date stub as a string.
+
         Raises:
             ValueError: If the date_stub is not in a valid format.
         """
@@ -308,9 +320,16 @@ class Utils:
     @staticmethod
     def extract_teams(text) -> Tuple[str, str]:
         """
-        Returns normalized home_team and away_team as defined in Metadata.team_abbreviations.
+        Extracts the home team and away team from the given text.
 
-        Returns 'unknown' for one or both teams if the team_abbreviations lookup fails.
+        Attempts to identify team names based on predefined abbreviations.
+
+        Args:
+            text: The text from which to extract team names.
+
+        Returns:
+            A tuple `(home_team, away_team)`, where each is a string.
+            Returns 'unknown' for one or both teams if extraction fails.
         """
         # Normalize the title to lowercase for consistent comparison
         normalized_text = text.lower()
@@ -391,7 +410,18 @@ class Utils:
         return 'unknown', 'unknown'
     
     @staticmethod
-    async def extract_video_info_filepath(filepath: str) -> Tuple[str, str]:
+    async def extract_video_info_filepath(filepath: str) -> Tuple[Optional[str], Optional[str]]:
+        """
+        Extracts video ID and audio format ID from a file path.
+
+        Parses the file name to find the video ID and audio format ID enclosed in braces.
+
+        Args:
+            filepath: The file path from which to extract information.
+
+        Returns:
+            A tuple `(video_id, a_format_id)`. Returns `None` for any value not found.
+        """
         file_name_parts = filepath.split('{')
         video_id = None
         a_format_id = None

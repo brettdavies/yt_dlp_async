@@ -1,4 +1,5 @@
 # yt_dlp_async
+
 `yt_dlp_async` is an asynchronous Python application designed to fetch and process YouTube video and playlist IDs using `yt-dlp` and store them in a PostgreSQL database. The application supports parallel processing of user IDs, playlist IDs, and video IDs through a set of asynchronous worker tasks.
 
 ## Features
@@ -7,24 +8,23 @@
 - **Parallel Processing with Workers**: Introduces the concept of workers to enable parallel processing of user IDs, playlist IDs, and video IDs. This allows for even faster data retrieval and processing.
 - **Environment Configuration**: Loads configuration settings from a `.env` file, making it easy to customize the application for different environments.
 - **Database Operations**: Manages database connections and performs batch inserts using `psycopg2`, ensuring efficient and reliable data storage.
-- **Command Line Interface (CLI)**: Provides a user-friendly CLI interface with commands to execute various functionalities.
+- **Command-Line Interface (CLI)**: Provides a user-friendly CLI interface with commands to execute various functionalities.
+- **Detailed Module Documentation**: Comprehensive documentation is available for each module, facilitating easier understanding and maintenance.
 
 With the addition of workers, `yt_dlp_async` can now handle multiple tasks simultaneously, significantly improving the overall performance and reducing the time required for fetching and processing YouTube IDs.
 
 Each worker operates independently, allowing for efficient utilization of system resources and maximizing throughput. This feature is particularly useful when dealing with large datasets or when time-sensitive operations are required.
 
-To configure the number of workers, simply adjust the corresponding setting in the `.env` file. By fine-tuning the number of workers based on your system's capabilities, you can achieve optimal performance for your specific use case.
-
-With the enhanced parallel processing capabilities provided by workers, `yt_dlp_async` offers a powerful solution for efficiently fetching and processing YouTube video and playlist IDs, making it an ideal choice for applications that require high-performance data retrieval and storage.
+To configure the number of workers, simply adjust the corresponding setting in the `.env` file or use command-line arguments. By fine-tuning the number of workers based on your system's capabilities, you can achieve optimal performance for your specific use case.
 
 ## Prerequisites
 
 Before using `yt_dlp_async`, ensure that you have the following prerequisites installed:
 
-- Python 3.12 or higher
-- Poetry
-- `yt-dlp`
-- Access to a PostgreSQL database
+- **Python 3.12 or higher**
+- **Poetry**
+- **yt-dlp**
+- **Access to a PostgreSQL database**
 
 ## Installation
 
@@ -55,9 +55,30 @@ To install `yt_dlp_async`, follow these steps:
 
    Adjust the `DATABASE_URL` to match your PostgreSQL setup.
 
-4. **Prepare Database**
+4. **Prepare the Database**
 
    Execute `db_schema.sql` to create the necessary tables and functions.
+
+## Documentation
+
+Detailed documentation for each module is available in the `docs` directory:
+
+- [video_id.py](docs/video_id.md): Fetching video IDs from YouTube.
+
+- [video_metadata.py](docs/video_metadata.md): Retrieves and processes metadata for YouTube videos.
+    - **Requires a Google API key with access to the YouTube Data API v3.** You can obtain an API key and ensure appropriate access by following [Google's official instructions](https://developers.google.com/youtube/v3/getting-started#before-you-start).
+
+- [video_file.py](docs/video_file.md): Handles downloading of video files from YouTube.
+
+- [video_download.py](docs/video_download.md): Manages the processing and organization of downloaded videos.
+
+- [utils.py](docs/utils.md): Provides utility functions for URL preparation, file reading, and data extraction.
+
+- [e_events.py](docs/e_events.md): Fetches and processes event data from the ESPN API.
+
+- [metadata.py](docs/metadata.md): Contains mappings for standardizing team names and abbreviations.
+
+- [db_schema.sql](docs/db_schema.md): Defines the database schema for storing YouTube and ESPN data.
 
 ## Usage
 
@@ -65,13 +86,23 @@ To install `yt_dlp_async`, follow these steps:
 
 `yt_dlp_async` provides several CLI commands for fetching and processing YouTube IDs. The commands are accessible through the `fire` library.
 
-```bash
-poetry run get-video-id
-poetry run get-video-metadata
-poetry run get-video-file
-```
+- **Fetch Video IDs**:
 
-Each command should be defined in the respective module and can be executed with appropriate arguments.
+  ```bash
+  poetry run get-video-id fetch [OPTIONS]
+  ```
+
+- **Fetch Video Metadata**:
+
+  ```bash
+  poetry run get-video-metadata fetch [OPTIONS]
+  ```
+
+- **Download Video Files**:
+
+  ```bash
+  poetry run get-video-file fetch [OPTIONS]
+  ```
 
 ### Configuration
 
@@ -79,119 +110,64 @@ The application uses the `.env` file for configuration. Make sure to specify you
 
 ### Example Usage
 
-#### run get-video-id
+#### Fetching Video IDs
 
 To start fetching video IDs, you can use the following command:
 
 ```bash
-poetry run get-video-id --video_ids="id1,id2" --video_id_files="file1.txt" --playlist_ids="playlist1,playlist2" --playlist_id_files="file2.csv" --user_ids="user1,user2" --user_id_files="file3.txt" --workers=4
+poetry run get-video-id fetch \
+  --video_ids "dQw4w9WgXcQ,9bZkp7q19f0" \
+  --video_id_files "video_ids.txt" \
+  --playlist_ids "PLMC9KNkIncKtPzgY-5rmhvj7fax8fdxoj" \
+  --playlist_id_files "playlist_ids.csv" \
+  --user_ids "UC_x5XG1OV2P6uZZ5FSM9Ttw" \
+  --user_id_files "user_ids.txt" \
+  --num_workers 4
 ```
 
-This command allows you to fetch video IDs from various sources. Here's a breakdown of the available options:
-
-- `--video_ids`: Specify a comma-separated list of video IDs to fetch.
-- `--video_id_files`: Specify one or more text files containing video IDs, with each ID on a separate line.
-- `--playlist_ids`: Specify a comma-separated list of playlist IDs to fetch.
-- `--playlist_id_files`: Specify one or more CSV files containing playlist IDs, with each ID in a separate row under the "playlist_id" column.
-- `--user_ids`: Specify a comma-separated list of user IDs to fetch.
-- `--user_id_files`: Specify one or more text files containing user IDs, with each ID on a separate line.
-- `--workers`: Specify the number of workers to use for parallel processing. Default is 1.
+- **Options**:
+  - `--video_ids`: Comma-separated list of video IDs to fetch.
+  - `--video_id_files`: One or more text files containing video IDs (one per line).
+  - `--playlist_ids`: Comma-separated list of playlist IDs to fetch.
+  - `--playlist_id_files`: One or more CSV files containing playlist IDs.
+  - `--user_ids`: Comma-separated list of user or channel IDs to fetch.
+  - `--user_id_files`: One or more text files containing user IDs (one per line).
+  - `--num_workers`: Number of workers to use for parallel processing (default is 1).
 
 You can mix and match these options to fetch video IDs from different sources simultaneously. For example, you can provide a combination of video IDs, playlist IDs, and user IDs in a single command.
 
-Make sure to replace `id1`, `id2`, `file1.txt`, `playlist1`, `playlist2`, `file2.csv`, `user1`, `user2`, and `file3.txt` with the actual IDs and file names you want to use.
+For detailed usage and examples, refer to the [video_id.py documentation](docs/video_id.md).
 
-By using these options, you can easily customize the fetching process and retrieve the desired video IDs for further processing or analysis.
-
-#### run get-video-metadata
+#### Fetching Video Metadata
 
 To retrieve metadata for YouTube videos, you can use the following command:
 
 ```bash
-poetry run get-video-metadata --video_ids="id1,id2" --video_id_files="file1.txt" --workers=4
+poetry run get-video-metadata fetch \
+  --num_workers 4
 ```
 
-This command allows you to fetch metadata for YouTube videos from various sources. Here's a breakdown of the available options:
+This command will process video IDs from the database that do not yet have metadata.
 
-- `--video_ids`: Specify a comma-separated list of video IDs for which you want to retrieve metadata.
-- `--video_id_files`: Specify one or more text files containing video IDs, with each ID on a separate line.
-- `--workers`: Specify the number of workers to use for parallel processing. Default is 1.
+For more information, see the [video_metadata.py documentation](docs/video_metadata.md).
 
-You can mix and match these options to retrieve metadata for videos from different sources simultaneously. For example, you can provide a combination of video IDs from a list and a text file in a single command.
-
-Make sure to replace `id1`, `id2`, and `file1.txt` with the actual video IDs and file names you want to use.
-
-By using these options, you can easily customize the metadata retrieval process and obtain the desired information about YouTube videos.
-
-#### run get-video-file
+#### Downloading Video Files
 
 To download YouTube videos, you can use the following command:
 
 ```bash
-poetry run get-video-file --video_ids="id1,id2" --video_id_files="file1.txt" --output_dir="output" --workers=4
+poetry run get-video-file fetch \
+  --existing_videos_dir "/path/to/existing_videos" \
+  --num_workers 4
 ```
 
-This command allows you to download YouTube videos from various sources. Here's a breakdown of the available options:
+- **Options**:
+  - `--existing_videos_dir`: Path to the directory containing existing video files.
+  - `--num_workers`: Number of workers to use for parallel processing (default is 10).
 
-- `--video_ids`: Specify a comma-separated list of video IDs for which you want to download the videos.
-- `--video_id_files`: Specify one or more text files containing video IDs, with each ID on a separate line.
-- `--output_dir`: Specify the directory where the downloaded videos will be saved. Default is the current directory.
-- `--workers`: Specify the number of workers to use for parallel processing. Default is 1.
+This command will download video files for video IDs that are in the database but do not have associated files yet.
 
-You can mix and match these options to download videos from different sources simultaneously. For example, you can provide a combination of video IDs from a list and a text file in a single command.
-
-Make sure to replace `id1`, `id2`, `file1.txt`, and `output` with the actual video IDs, file names, and output directory you want to use.
-
-By using these options, you can easily customize the video downloading process and save the YouTube videos to the desired location on your system.
-
-## Development
-
-To contribute to `yt_dlp_async`, follow these steps:
-
-1. **Install Development Dependencies**:
-
-   ```bash
-   poetry install --dev
-   ```
-
-2. **Run Tests**:
-
-   If tests are defined, you can run them using:
-
-   ```bash
-   poetry run pytest
-   ```
-
-3. **Build the Project**:
-
-   To build the project, use:
-
-   ```bash
-   poetry build
-   ```
-
-4. **Format Code**:
-
-   Ensure code consistency by formatting:
-
-   ```bash
-   poetry run black yt_dlp_async
-   ```
-
-5. **Make Changes and Commit**:
-
-   ```bash
-   git add .
-   git commit -m "Add your feature"
-   ```
-
-6. **Push and Create a Pull Request**:
-
-   ```bash
-   git push origin feature/your-feature
-   ```
-
-   Then, create a pull request on GitHub.
+For additional details, refer to the [video_file.py documentation](docs/video_file.md).
 
 ## License
 
@@ -204,3 +180,5 @@ This project is licensed under the BSD 3-Clause License. See the [LICENSE](LICEN
 - [Loguru](https://github.com/Delgan/loguru) for advanced logging.
 
 ---
+
+By utilizing the comprehensive documentation and modular design, `yt_dlp_async` provides a robust and efficient solution for fetching, processing, and storing YouTube data. For more detailed information on each module and its functionalities, please refer to the documentation linked above.

@@ -25,29 +25,22 @@ SUBTITLES_FORMAT = 'ttml'
 @dataclass
 class Fetcher:
     """
-    This module contains the `Fetcher` class which is responsible for fetching and downloading videos from YouTube.
-    Attributes:
-        video_id (str): The ID of the video to be fetched.
-    Methods:
-        fetch(): Fetches and downloads the video.
-        download_audio(url): Downloads the audio of the video.
-        progress_hook(d): Progress hook function for the download process.
-        postprocess_hook(d): Postprocess hook function for the download process.
-        determine_path_and_name(info_dict): Determines the path and filename for the downloaded audio file.
-        extract_date(text): Extracts the date from the given text.
-        format_duration(duration): Formats the duration of the video.
+    Downloads videos from YouTube and processes their audio files.
     """
     video_id: str
     
     def __init__(self):
+        """
+        Initializes the Fetcher with default settings.
+        """
         self.base_url: str = BASE_URL
     
     def fetch(self, video_id: str) -> None:
         """
-        Fetches the video by downloading its audio from the given video URL.
+        Fetches and processes the video by downloading its audio.
 
-        Returns:
-            None
+        Args:
+            video_id (str): The YouTube video ID to fetch.
         """
         self.video_id = video_id
         self.video_name = f"[Video {self.video_id}] "
@@ -59,18 +52,14 @@ class Fetcher:
         logger.info(f"{self.video_name}Fetching video {self.video_id}")
         self.download_audio()
 
-    def download_audio(self):
+    def download_audio(self) -> None:
         """
-        Downloads the audio from the given URL.
+        Downloads the audio from the video URL.
 
-        Args:
-            url (str): The URL of the video to download the audio from.
+        Uses the video URL stored in `self.video_url`.
 
         Raises:
             Exception: If an error occurs during the download process.
-
-        Returns:
-            None
         """
 
         ydl_opts = {
@@ -101,19 +90,12 @@ class Fetcher:
         except Exception as e:
             logger.error(f"{self.video_name}Unexpected error: {e}")
 
-    def progress_hook(self, d):
+    def progress_hook(self, d) -> None:
         """
-        A progress hook function that is called during the download process.
+        Callback function called during the download process to report progress.
 
-        Parameters:
-        - d (dict): A dictionary containing information about the download progress.
-
-        Returns:
-        - None
-
-        Description:
-        - This function is called for each progress update during the download process.
-        - It logs a message when the download is finished, including the video name, the filename, and the default template.
+        Args:
+            d (dict): A dictionary containing information about the download progress.
         """
         if d['status'] == 'downloading':
             logger.debug(f"{self.video_name}Downloading: {d['_percent_str']} at {d['_speed_str']} ETA {d['_eta_str']}")
@@ -122,11 +104,13 @@ class Fetcher:
     
     def postprocess_hook(self, d) -> bool:
         """
-        Postprocesses the downloaded video file.
+        Post-processes the downloaded video file after download completion.
+
         Args:
-            d (dict): The dictionary containing the download information.
+            d (dict): Dictionary containing download information.
+
         Returns:
-            bool: True if the postprocessing is successful, False otherwise.
+            bool: `True` if post-processing is successful, `False` otherwise.
         """
         try:
             if d['status'] == 'finished':
@@ -207,11 +191,13 @@ class Fetcher:
 
     def determine_path_and_name(self, info_dict: dict) -> tuple:
         """
-        Determines the path and file name for a video based on the given information.
+        Determines the file path and name for the video based on provided metadata.
+
         Args:
-            info_dict (dict): A dictionary containing information about the video.
+            info_dict (dict): Dictionary containing information about the video.
+
         Returns:
-            tuple: A tuple containing the path and file name for the video.
+            tuple: A tuple `(path, file_name)` for storing the video.
         """
         title:str = info_dict.get('title', )
         description:str = info_dict.get('description', )
@@ -276,13 +262,13 @@ class Fetcher:
 
     def format_duration(self, duration: str) -> str:
         """
-        Formats the duration of the video.
+        Formats the duration string into a human-readable format.
 
         Args:
-            duration (str): The duration string.
+            duration (str): The duration string in ISO 8601 format.
 
         Returns:
-            str: The formatted duration.
+            str: The formatted duration as 'XH YM ZS'.
         """
         match = re.match(r'PT(\d+H)?(\d+M)?(\d+S)?', duration)
         if not match:
@@ -293,6 +279,6 @@ class Fetcher:
 
 def cmd() -> None:
     """
-    Command line interface for running the Fetcher.
+    Provides a command-line interface for running the Fetcher.
     """
     fire.Fire(Fetcher())
