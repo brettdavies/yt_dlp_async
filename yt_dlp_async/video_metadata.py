@@ -2,7 +2,6 @@
 import os
 import asyncio
 import aiohttp
-from datetime import datetime
 from dataclasses import dataclass
 from typing import List, Dict, Any, Optional
 
@@ -13,7 +12,6 @@ from dotenv import load_dotenv
 
 # First Party Libraries
 from .utils import Utils
-from .e_events import EventFetcher
 from .logger_config import LoggerConfig
 from .database import DatabaseOperations
 
@@ -36,11 +34,9 @@ class QueueManager:
     """
     def __init__(self):
         self.metadata_queue = asyncio.Queue()
-        self.event_metadata_queue = asyncio.Queue()
         self.active_tasks = {
             'retrieve': 0,
-            'save': 0,
-            'event_metadata': 0
+            'save': 0
         }
 
 class Logging:
@@ -120,21 +116,6 @@ class VideoIdOperations:
             logger.error(f"[Worker {worker_id}] Quota has been exceeded, not making request.")
             return []
 
-    async def populate_event_metadata_queue(queue_manager: QueueManager) -> None:
-        """
-        Populates the event metadata queue with dates that require event metadata processing.
-
-        Args:
-            queue_manager (QueueManager): The QueueManager instance to add dates to.
-
-        Returns:
-            None
-        """
-        event_dates = DatabaseOperations.get_dates_no_event_metadata()
-        for date_str in event_dates:
-            await queue_manager.event_metadata_queue.put(date_str)
-        logger.info(f"Size of event_metadata_queue: {queue_manager.event_metadata_queue.qsize()}")
-
 @dataclass(slots=True)
 class Fetcher:
     """
@@ -177,27 +158,23 @@ class Fetcher:
                 if video_ids or video_id_files:
                     Utils.read_ids_from_cli_argument_insert_db(video_ids, video_id_files)
 
-                await VideoIdOperations.populate_event_metadata_queue(self.queue_manager)
-
             except Exception as e:
                 return
 
-            event_metadata_workers = [asyncio.create_task(worker_event_metadata(self.queue_manager, worker_id=f"event_metadata_{i}")) for i in range(num_workers)]
             retrieve_metadata_workers = [asyncio.create_task(worker_retrieve_metadata(self.queue_manager, self.shutdown_event, worker_id=f"retrieve_{i}")) for i in range(num_workers)]
             save_metadata_workers = [asyncio.create_task(worker_save_metadata(self.queue_manager, self.shutdown_event, worker_id=f"save_{i}")) for i in range(min(num_workers * 50, 150))]
 
             await asyncio.gather(*retrieve_metadata_workers)
             self.shutdown_event.set()  # Signal save_metadata_workers to shut down
-            await asyncio.gather(*save_metadata_workers, *event_metadata_workers)
+            await asyncio.gather(*save_metadata_workers)
 
             # Wait for all the queue tasks to finish before the script ends
             await asyncio.gather(
                 self.queue_manager.metadata_queue.join(),
-                self.queue_manager.event_metadata_queue.join()
             )
 
         finally:
-            DatabaseOperations.close_connection_pool() # Close the connection pool
+            DatabaseOperations.close() # Close the connection pool
 
 async def worker_retrieve_metadata(queue_manager: QueueManager, shutdown_event: asyncio.Event, worker_id: str) -> None:
     """
@@ -267,50 +244,6 @@ async def worker_save_metadata(queue_manager: QueueManager, shutdown_event: asyn
             queue_manager.active_tasks['save'] -= 1
             if shutdown_event.is_set() and queue_manager.metadata_queue.empty():
                 break  # Exit only when the queue is empty and shutdown_event is set
-        await asyncio.sleep(.250)
-    logger.info(f"[Worker {worker_id}] Save metadata worker has finished.")
-
-async def worker_event_metadata(queue_manager: QueueManager, worker_id: str) -> None:
-    """
-    Processes event metadata by retrieving dates without event metadata and running the EventFetcher.
-
-    Args:
-        queue_manager (QueueManager): Manages the queues and active tasks.
-        worker_id (str): Identifier for the worker instance.
-
-    Returns:
-        None
-
-    Raises:
-        Exception: If an error occurs during event metadata processing.
-    """
-    while True:
-        try:
-            queue_manager.active_tasks['event_metadata'] += 1
-
-            if queue_manager.event_metadata_queue.qsize() > 0:
-                date_obj = await asyncio.wait_for(queue_manager.event_metadata_queue.get(), timeout=1)
-                logger.info(f"[Worker {worker_id}] Size of event_metadata_queue after get: {queue_manager.event_metadata_queue.qsize()}")
-
-                # Assuming date_str is a datetime.date object
-                date_str = date_obj.strftime('%Y%m%d')
-
-                # Initialize the EventFetcher with the date_str
-                event_fetcher = EventFetcher()
-
-                # Run the EventFetcher
-                logger.info(f"[Worker {worker_id}] Running EventFetcher for date: {date_str}")
-                await event_fetcher.run(date_str)
-
-                queue_manager.event_metadata_queue.task_done()
-        except asyncio.TimeoutError:
-            logger.error(f"[Worker {worker_id}] asyncio.TimeoutError")
-        except Exception as e:
-            logger.error(f"[Worker {worker_id}] Error saving metadata: {e}")
-        finally:
-            queue_manager.active_tasks['event_metadata'] -= 1
-            if queue_manager.event_metadata_queue.empty():
-                break  # Exit only when the queue is empty
         await asyncio.sleep(.250)
     logger.info(f"[Worker {worker_id}] Save metadata worker has finished.")
 

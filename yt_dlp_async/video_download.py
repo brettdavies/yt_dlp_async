@@ -79,7 +79,7 @@ class Fetcher:
             'embed_chapters': False,
             'add_metadata': False,
             'quiet': False,
-            'skip_download': False,  # Don't download the video
+            'skip_download': False,  # True = Don't download the video / audio
         }
 
         try:
@@ -235,28 +235,15 @@ class Fetcher:
         if home_team == 'Unknown' and away_team == 'Unknown':
             # Try to extract teams from description
             home_team, away_team = Utils.extract_teams(description)
-        
-        # If home_team is unknown, try looking it up in e_events using the date and away team
-        if home_team == 'Unknown':
-            home_team = DatabaseOperations.get_e_events_team_info(date_obj, away_team, is_home_unknown=True)
-        # If away_team is unknown, try looking it up in e_events using the date and home team
-        elif away_team == 'Unknown':
-            away_team = DatabaseOperations.get_e_events_team_info(date_obj, home_team, is_home_unknown=False)
-    
-        # Retrieve the e_event_id using the date, home team, and away team
-        e_event_id = DatabaseOperations.get_event_id(date_obj, home_team, away_team)
-    
+            
         # Convert the duration to a string
         duration_string = self.format_duration(str(duration))
 
         # Construct the path and file name
-        e_id = ''
-        if e_event_id:
-            e_id = f"{{e-{e_event_id}}}"
         path = f"{OUTPUT_DIR}{path_date}/"
         if home_team == 'Unknown' or away_team == 'Unknown':
             path = f"{OUTPUT_DIR}unknown_teams/{path_date}/"        
-        file_name = f"{away_team} at {home_team} - {filename_date} - [{language}][{duration_string}][{asr}][{dynamic_range}][{acodec}][{quality}][{format_note}]{{fid-{format_id}}}{e_id}{{yt-{video_id}}}"
+        file_name = f"{away_team} at {home_team} - {filename_date} - [{language}][{duration_string}][{asr}][{dynamic_range}][{acodec}][{quality}][{format_note}]{{fid-{format_id}}}{{yt-{video_id}}}"
 
         return path, file_name
 

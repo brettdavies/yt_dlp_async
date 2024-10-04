@@ -4,14 +4,13 @@ import re
 import json
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
-from dataclasses import dataclass
 
 # Logging
 from loguru import logger
 
 # First Party Libraries
-from .database import DatabaseOperations
 from .metadata import Metadata
+from .database import DatabaseOperations
 
 class Utils:
     """

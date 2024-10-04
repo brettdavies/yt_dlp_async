@@ -1,6 +1,6 @@
 # Database Schema Documentation
 
-This document provides a comprehensive overview of the database schema used in the project. The schema is designed to store and manage data related to YouTube videos and ESPN events, including metadata, tags, thumbnails, and associated event information.
+This document provides a comprehensive overview of the database schema used in the project. The schema is designed to store and manage data related to YouTube videos, including metadata, tags, and thumbnails.
 
 ---
 
@@ -34,13 +34,10 @@ An SVG version is available [here](images/yt_dlp_async_db_schema.svg).
     - [1.2.1. Function: `update_modified_at_column`](#121-function-update_modified_at_column)
     - [1.2.2. Function: `propagate_soft_delete_to_related_tables`](#122-function-propagate_soft_delete_to_related_tables)
     - [1.2.3. Function: `delete_from_yt_videos_to_be_processed`](#123-function-delete_from_yt_videos_to_be_processed)
-- [2. ESPN-Related Database Objects](#2-espn-related-database-objects)
-  - [2.1. Tables](#21-tables)
-    - [2.1.1. `e_events`](#211-e_events)
-- [3. Soft Delete Mechanism](#3-soft-delete-mechanism)
-  - [3.1. Functions and Triggers](#31-functions-and-triggers)
-- [4. Indexes](#4-indexes)
-- [5. Permissions](#5-permissions)
+- [2. Soft Delete Mechanism](#2-soft-delete-mechanism)
+  - [2.1. Functions and Triggers](#21-functions-and-triggers)
+- [3. Indexes](#3-indexes)
+- [4. Permissions](#4-permissions)
 - [Additional Notes](#additional-notes)
 - [Conclusion](#conclusion)
 
@@ -315,33 +312,9 @@ An SVG version is available [here](images/yt_dlp_async_db_schema.svg).
 
 ---
 
-## 2. ESPN-Related Database Objects
+## 2. Soft Delete Mechanism
 
-### 2.1. Tables
-
-#### 2.1.1. `e_events`
-
-**Purpose**: Stores event information fetched from ESPN. This includes details about sports events, such as dates, teams involved, and event types.
-
-**Columns**:
-
-- `event_id` (VARCHAR, Primary Key): Unique identifier for the event.
-- `date` (TIMESTAMP WITH TIME ZONE): Date and time when the event occurred.
-- `type` (INTEGER): Numerical code representing the type of event.
-- `short_name` (VARCHAR): Short name or abbreviation of the event.
-- `home_team` (VARCHAR): Abbreviation of the home team.
-- `away_team` (VARCHAR): Abbreviation of the away team.
-- `home_team_normalized` (VARCHAR): Standardized abbreviation of the home team.
-- `away_team_normalized` (VARCHAR): Standardized abbreviation of the away team.
-- `created_at` (TIMESTAMP WITH TIME ZONE): Timestamp when the event record was created.
-- `modified_at` (TIMESTAMP WITH TIME ZONE): Timestamp when the event record was last modified.
-- `deleted_at` (TIMESTAMP WITH TIME ZONE): Timestamp when the event record was soft-deleted.
-
----
-
-## 3. Soft Delete Mechanism
-
-### 3.1. Functions and Triggers
+### 2.1. Functions and Triggers
 
 The database uses a soft delete mechanism, where records are not physically removed but are marked as deleted by setting the `deleted_at` timestamp. This allows for data recovery and historical data analysis.
 
@@ -353,7 +326,7 @@ The database uses a soft delete mechanism, where records are not physically remo
 
 ---
 
-## 4. Indexes
+## 3. Indexes
 
 Indexes are created on various columns to improve query performance, especially on columns frequently used in `WHERE` clauses and joins.
 
@@ -365,7 +338,7 @@ Indexes are created on various columns to improve query performance, especially 
 
 ---
 
-## 5. Permissions
+## 4. Permissions
 
 - Grants all privileges on all tables in the `public` schema to the user `itguy`.
 - Grants usage and select permissions on all sequences in the `public` schema to `itguy`.
@@ -389,7 +362,7 @@ Indexes are created on various columns to improve query performance, especially 
 
 ## Conclusion
 
-The `db_schema.sql` script sets up a comprehensive database schema for managing YouTube video metadata and ESPN event data. It ensures data integrity through the use of constraints, triggers, and functions. The schema is optimized for performance with appropriate indexing and is designed with best practices like soft deletes and automatic timestamp management.
+The `db_schema.sql` script sets up a comprehensive database schema for managing YouTube video metadata. It ensures data integrity through the use of constraints, triggers, and functions. The schema is optimized for performance with appropriate indexing and is designed with best practices like soft deletes and automatic timestamp management.
 
 By following this documentation and the in-line comments, developers and database administrators can better understand the structure and functionality of the database, facilitating maintenance and future development.
 

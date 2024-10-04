@@ -1,5 +1,5 @@
 -- ================================================
--- Database Schema for YouTube and ESPN Data Storage
+-- Database Schema for YouTube-related Data Storage
 -- ================================================
 
 -- ================================================
@@ -251,41 +251,7 @@ FOR EACH ROW
 EXECUTE FUNCTION delete_from_yt_videos_to_be_processed();
 
 -- ================================================
--- 2. ESPN-related Database Objects
--- ================================================
-
--- -----------------------------------------------
--- 2.1. Tables
--- -----------------------------------------------
-
--- 2.1.1. Table: e_events
--- Stores event information from ESPN.
-CREATE TABLE e_events (
-    event_id INTEGER PRIMARY KEY,
-    date TIMESTAMP WITH TIME ZONE,
-    type INTEGER,
-    short_name VARCHAR(12),
-    home_team VARCHAR(7),
-    away_team VARCHAR(7),
-    home_team_normalized VARCHAR(7),
-    away_team_normalized VARCHAR(7),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    deleted_at TIMESTAMP WITH TIME ZONE
-);
-
--- -----------------------------------------------
--- 2.2. Functions and Triggers
--- -----------------------------------------------
-
--- Trigger: update 'modified_at' on e_events before update
-CREATE TRIGGER update_e_events_modified_at
-BEFORE UPDATE ON e_events
-FOR EACH ROW
-EXECUTE FUNCTION update_modified_at_column();
-
--- ================================================
--- 3. Permissions
+-- 2. Permissions
 -- ================================================
 
 -- Grant necessary permissions (adjust as needed)
