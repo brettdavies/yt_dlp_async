@@ -261,7 +261,7 @@ EXECUTE FUNCTION delete_from_yt_videos_to_be_processed();
 -- 2.1.1. Table: e_events
 -- Stores event information from ESPN.
 CREATE TABLE e_events (
-    event_id VARCHAR(20) PRIMARY KEY,
+    event_id INTEGER PRIMARY KEY,
     date TIMESTAMP WITH TIME ZONE,
     type INTEGER,
     short_name VARCHAR(12),
@@ -271,8 +271,7 @@ CREATE TABLE e_events (
     away_team_normalized VARCHAR(7),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    deleted_at TIMESTAMP WITH TIME ZONE,
-    CONSTRAINT unique_e_events UNIQUE (event_id)
+    deleted_at TIMESTAMP WITH TIME ZONE
 );
 
 -- -----------------------------------------------
