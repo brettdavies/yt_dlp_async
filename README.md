@@ -80,6 +80,8 @@ Detailed documentation for each module is available in the `docs` directory:
 
 - [db_schema.sql](docs/db_schema.md): Defines the database schema for storing YouTube and ESPN data.
 
+- [database.py](docs/database.md): Manages database operations, including establishing SSH tunnels, handling database connections, and executing queries using a connection pool pattern for efficient connection management.
+
 ## Usage
 
 ### CLI Commands
