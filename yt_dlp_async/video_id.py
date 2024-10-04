@@ -181,7 +181,7 @@ class Fetcher:
             )
 
         finally:
-            DatabaseOperations.close_connection_pool() # Close the connection pool
+            DatabaseOperations.close() # Close the connection pool
 
     async def add_ids_to_queue(ids: Optional[List[str]], id_files: Optional[List[str]], queue_manager: QueueManager, read_func) -> None:
         """

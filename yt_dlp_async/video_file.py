@@ -168,7 +168,7 @@ class Fetcher:
             await asyncio.gather(*video_file_workers)  # Wait for all workers to finish
 
         finally:
-            DatabaseOperations.close_connection_pool() # Close the connection pool
+            DatabaseOperations.close() # Close the connection pool
 
 def cmd() -> None:
     """
