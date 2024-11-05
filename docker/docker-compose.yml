@@ -1,0 +1,21 @@
+services:
+  yt_dlp_async:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: yt_dlp_async
+    user: "${UID}:${GID}"  # Set user to the current user's UID and GID
+    restart: unless-stopped  # Restart the container unless stopped
+    env_file:
+      - "/github/yt_dlp_async/.env"  # Load environment variables from .env
+    volumes:
+      - /etc/passwd:/etc/passwd:ro
+      - /etc/shadow:/etc/shadow:ro
+      - /etc/group:/etc/group:ro
+      - "$HOME/.ssh:/tmp/.ssh:ro"  # Mount the SSH keys
+      - "/storage/data:/data"  # Data directory
+      - "/storage/logs:/logs"  # Logs directory
+    ports:
+        - "5432:5432"
+    entrypoint: ["/docker-entrypoint.sh"]  # Use the entrypoint script
+    tty: true  # Keep the container running
