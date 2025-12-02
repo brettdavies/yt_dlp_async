@@ -1,5 +1,7 @@
 # yt_dlp_async
 
+> **Project Overview:** See [PROJECT.md](PROJECT.md) for a high-level overview, achievements, and technical highlights.
+
 `yt_dlp_async` is an asynchronous Python application designed to fetch and process YouTube video and playlist IDs using `yt-dlp` and store them in a PostgreSQL database. The application supports parallel processing of user IDs, playlist IDs, and video IDs through a set of asynchronous worker tasks.
 
 ## Features
